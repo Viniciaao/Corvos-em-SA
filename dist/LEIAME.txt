@@ -38,7 +38,13 @@
          voce esta, a trava, os corvos, o clima e mais);
          cada corvo agora tem o proprio relogio de grasnado (antes todos
          comecavam do zero no nascimento e grasnavam quase juntos);
-         o poleiro do CROW2 da area 1 foi movido para longe do CROW3.
+         o poleiro do CROW2 da area 1 foi movido para longe do CROW3;
+         correcao (volta do teste): o corvo pousado estava recebendo o codigo
+         de voo (a conta do grasnado deixava a variavel de rascunho com o
+         mesmo numero de "voando"), e ele saia do poleiro deslizando, sem
+         bater asas, ate cair no chao. Agora a rotina de cada corvo e'
+         escolhida lendo o estado da vaga direto, e nao tem mais como
+         confundir.
 
  O que o mod faz
  ---------------

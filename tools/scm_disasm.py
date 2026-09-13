@@ -86,12 +86,41 @@ def read_param(data, pos):
     return '%s:%s' % (kind, raw.hex()), pos, t, None
 
 
+def conta_formatos(fmt):
+    """Conta os %d/%.0f/%s de uma string de formato (o %% duplo nao conta).
+
+    O compilador usa justamente essa contagem para saber quantos parametros
+    extras a instrucao leva, entao aqui tambem e' o jeito certo de saber onde a
+    lista termina. Devolve None quando a string de formato nao e' literal.
+    """
+    if not fmt:
+        return None
+    n = 0
+    i = 0
+    while i < len(fmt):
+        if fmt[i] == '%':
+            if i + 1 < len(fmt) and fmt[i + 1] == '%':
+                i += 2
+                continue
+            n += 1
+        i += 1
+    return n
+
+
 def walk(data, table):
     """Percorre o arquivo e devolve [(inicio, fim, op, negado, nome, args_txt, salto_bruto)].
 
-    Opcodes com argumento variavel (o PARAM optional do gta3sc, como
-    PRINT_FORMATTED_NOW / STRING_FORMAT) leem parametros ate o marcador de fim
-    (tipo 0x00) -- sem isso a desmontagem perde o alinhamento depois deles.
+    O ultimo argumento declarado como PARAM no XML do gta3sc pode ser DUAS
+    coisas:
+
+    * um parametro so', de qualquer tipo (por exemplo o destino do READ_MEMORY,
+      0A8D) -- o compilador escreve um unico valor e nenhum terminador;
+    * uma lista (o texto formatado do CLEO, 0ACE / 0AD1 / 0AD3), aí o numero de
+      valores sai da propria string de formato e o compilador fecha a lista com
+      o marcador de fim (tipo 0x00).
+
+    Tratar os dois casos como lista (ou como um valor so') desalinha a leitura:
+    foi o que aconteceu com o READ_MEMORY antes desta correcao.
     """
     pos = 0
     out = []
@@ -108,20 +137,41 @@ def walk(data, table):
         fixos = args[:-1] if variadic else args
         vals = []
         jump = None
-        for _ in fixos:
+        fmt = None
+        for tipo in fixos:
             if pos >= len(data):
                 break
             txt, pos, t, v = read_param(data, pos)
             if op in GOTO_OPS and t == 0x01:
                 jump = v
                 txt = '->%d' % v             # resolvido depois
+            if tipo == 'STRING' and t in (0x0E, 0x0F, 0x09):
+                fmt = txt.strip("'")          # ultima string fixa = formato
             vals.append(txt)
         if variadic:
-            while pos < len(data) and data[pos] != 0x00:
+            n = conta_formatos(fmt)
+            if fmt is not None and n is None:
+                # string de formato nao literal: a lista vai ate o terminador
+                while pos < len(data) and data[pos] != 0x00:
+                    txt, pos, t, v = read_param(data, pos)
+                    vals.append(txt)
+                if pos < len(data) and data[pos] == 0x00:
+                    pos += 1
+            elif n:
+                for _ in range(n):           # um valor por % da string
+                    if pos >= len(data):
+                        break
+                    txt, pos, t, v = read_param(data, pos)
+                    vals.append(txt)
+                if pos < len(data) and data[pos] == 0x00:
+                    pos += 1                 # marcador de fim da lista
+            elif pos < len(data) and data[pos] == 0x00:
+                pos += 1                     # formato sem nenhum %: lista vazia
+            elif pos < len(data):
+                # PARAM de um valor so' (0A8D READ_MEMORY, 0x4F START_NEW_SCRIPT,
+                # 0xA92 STREAM_CUSTOM_SCRIPT...): um valor, sem terminador
                 txt, pos, t, v = read_param(data, pos)
                 vals.append(txt)
-            if pos < len(data):
-                pos += 1                     # consome o marcador de fim
         out.append([ini, pos, op, neg, name, vals, jump])
     return out
 

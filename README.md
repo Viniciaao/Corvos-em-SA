@@ -7,6 +7,11 @@ ameaça) chega perto.
 Esta versão junta os cinco scripts originais (`CROW1` … `CROW5`) em **um único
 script**, corrige os erros de lógica do original e usa o áudio 3D do CLEO.
 
+* **2.5 (correção)** — o corvo **pousado** estava recebendo o código de voo (a
+  conta do grasnado deixava a variável de rascunho com o valor de "voando"), e
+  saía do poleiro deslizando, sem bater asas, até cair no chão. Agora a rotina
+  de cada corvo é escolhida lendo o estado da vaga direto, sem chance de
+  confusão.
 * **2.5** — **modo debug** ligado pelo `debug = 1` do `CLEO/CORVOS.ini`
   (mostra na tela em que região de corvos você está, a região mais próxima e a
   distância, a trava, o clima, se o modelo está carregado, quantos corvos

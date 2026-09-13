@@ -470,8 +470,65 @@ também deixou a verificação do `.cs` inteira de novo.
 (`cv_dbg_area` e `cv_dbg_nearest`) e a chave `debug` do INI. O relatório do
 próprio código lista esses passos no comentário do `cv_debug`.
 
-**Build 2.5**: 26.934 bytes, 2.919 instruções, no máximo o local **31@** (limite
+**Build 2.5**: 26.943 bytes, 2.923 instruções, no máximo o local **31@** (limite
 32 do motor) — conferido na desmontagem.
+
+**4. Correção depois do teste em jogo: os corvos pousados estavam recebendo o
+código de voo.** Era isto que fazia o corvo sair do poleiro deslizando, sem
+bater as asas (e sem a animação de voo), e acabar no chão — visível logo nos
+corvos da área 3.
+
+A causa é sutil e vale registrar. Para escolher o que fazer com cada corvo a
+cada quadro, o `cv_tick` copiava o estado da vaga para uma **variável de
+trabalho** (`st`) e comparava com pousado/subindo/voando. Só que o `cv_perch`
+usa essas mesmas variáveis como rascunho, e a conta nova do grasnado deixava
+justamente ali o **período em segundos**:
+
+```
+st = cfg_misc / 4      // cfg_misc = bit0 + bit1 + 4 * segundos do INI
+```
+
+Com o `grasnado_a_cada = 12` (o padrão do INI), isso dá **3** — que é o mesmo
+número de `STATE_FLY`. O corvo pousado, portanto, ia para a rotina de voo, que
+dá rotação e velocidade para a frente: ele deslizava para fora do poleiro na
+pose de pouso e, quando chegava perto do chão, "pousava" na rua. No código
+antigo esse mesmo trecho terminava com o período em quadros (720), um número
+que não casava com nenhum estado — por isso só a 2.5 quebrou.
+
+Havia ainda dois caminhos com o mesmo defeito, esses desde a 2.4: o contador
+da varredura de pedestres (que termina entre 0 e 8) e o `cv_takeoff`, que
+chama o `cv_area_lock` e deixa ali o número da área — decolando na **área 3**
+o valor virava 3 e o corvo levava o código de cruzeiro no mesmo quadro da
+decolagem.
+
+**A correção** (em vez de só trocar a variável) tira a possibilidade do erro:
+a escolha da rotina saiu do `cv_tick` para um `cv_tick_state` novo, que lê o
+estado **direto do `state[slot]`** nas três comparações:
+
+```
+cv_tick_state:
+IF state[slot] = STATE_PERCH
+    GOTO cv_perch
+ENDIF
+...
+```
+
+Uma rotina por quadro, e o `GOTO` de dentro não muda o caminho de volta (a
+rotina devolve direto para o `cv_tick`, como o `cv_perch` já fazia com o
+`cv_takeoff`). O valor que estiver nas variáveis de trabalho deixa de importar:
+não tem mais como confundir rascunho com estado. Nenhuma variável nova foi
+precisa — o script está no limite de 32 locais do motor.
+
+**5. O desmontador (`tools/scm_disasm.py`) também tinha um defeito**, achado
+enquanto esta correção era conferida: o `READ_MEMORY` (`0A8D`) declara o
+destino como um `PARAM` (qualquer coisa) no XML do `gta3sc`, e o desmontador
+tratava isso como a *lista* variável dos opcodes de texto formatado — lia
+parâmetros até achar o marcador de fim e saía do alinhamento depois de cada
+`READ_MEMORY` (as instruções seguintes apareciam como lixo). Agora a regra é
+tirada da própria string de formato (um valor por `%`), com o caso do
+parâmetro único tratado separadamente; a leitura fica alinhada de ponta a
+ponta. Foi assim que a contagem desta versão ficou certa: 2.923 instruções
+(a 2.4 e a 2.3 foram reconferidas e continuam 2.664 e 2.413).
 
 
 ## 10. Como recompilar

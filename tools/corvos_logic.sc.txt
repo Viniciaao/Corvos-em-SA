@@ -29,6 +29,10 @@
 //         grasnado de cada corvo com relogio proprio (antes todos comecavam
 //         juntos e grasnavam quase ao mesmo tempo) e o poleiro do CROW2 da
 //         area 1 movido para onde o jogador pediu
+//         correcao: o corvo pousado estava recebendo o codigo de voo, porque o
+//         relogio do grasnado deixava a variavel de estado com o valor de
+//         "voando" e o cv_tick usava esse valor para escolher a sub. Agora o
+//         cv_tick_state le o estado de novo, direto do state[slot]
 //   2.4 - os corvos nao reaparecem mais logo depois de irem embora: quando um
 //         corvo sai de uma regiao, ela fica "gasta" e nenhum outro corvo nasce
 //         ate o jogador se afastar 200 m dela (o original esperava 10 s e
@@ -366,22 +370,45 @@ IF NOT LOCATE_CHAR_ANY_MEANS_CHAR_3D player h DESPAWN_DIST DESPAWN_DIST DESPAWN_
         RETURN
     ENDIF
 ENDIF
-st = state[slot]
-IF st = STATE_PERCH
-    GOSUB cv_perch
-ENDIF
-IF st = STATE_CLIMB
-    GOSUB cv_fly_climb
-ENDIF
-IF st = STATE_FLY
-    GOSUB cv_fly
-ENDIF
+// Uma sub por quadro, escolhida pelo estado da vaga. A escolha LE o estado
+// direto do "state[slot]", e nao uma copia guardada numa variavel de trabalho:
+// as subs usam essas variaveis como rascunho, e uma copia chegava sobrescrita
+// na hora de escolher. Foi o que quebrou na 2.5: o trecho do grasnado deixava
+// o "st" = 3 (o mesmo numero de "voando") e o corvo POUSADO recebia o codigo de
+// voo -- saia do poleiro deslizando, sem bater as asas, e ia parar no chao.
+// O "GOTO" dentro do cv_tick_state nao muda o caminho de volta: a sub devolve
+// direto para o cv_tick, como o cv_perch ja fazia com o cv_takeoff.
+GOSUB cv_tick_state
 GOSUB cv_audio_range
 RETURN
 
 
 // ---------------------------------------------------------------------------
+//  cv_tick_state   manda o corvo para a sub do estado em que ele esta
+//
+//  Entrada: slot (a vaga). Uma sub por quadro, sempre lendo o estado de novo.
+// ---------------------------------------------------------------------------
+cv_tick_state:
+IF state[slot] = STATE_PERCH
+    GOTO cv_perch
+ENDIF
+IF state[slot] = STATE_CLIMB
+    GOTO cv_fly_climb
+ENDIF
+IF state[slot] = STATE_FLY
+    GOTO cv_fly
+ENDIF
+RETURN
+
+
+// ---------------------------------------------------------------------------
 //  cv_perch   pousado: fica de olho e levanta voo quando algo assusta
+//
+//  ATENCAO: aqui as variaveis de trabalho ("st", "tmp", "found", "rnd", as
+//  coordenadas) sao rascunho -- o "st" inclusive termina com o numero da area
+//  (o cv_takeoff chama o cv_area_lock). Ninguem pode depender do valor delas
+//  depois deste trecho: quem escolhe a proxima sub e' o cv_tick_state, que le
+//  o "state[slot]".
 // ---------------------------------------------------------------------------
 cv_perch:
 IF LOCATE_CHAR_ANY_MEANS_CHAR_2D player h PLAYER_ALERT_DIST PLAYER_ALERT_DIST 0
@@ -468,6 +495,8 @@ IF st > 0
         found = tmp / st
         found *= st
         tmp = tmp - found              // quanto falta dentro do periodo
+        // (o "st" sai daqui com o periodo em milissegundos: pode, o
+        //  cv_tick_state nao usa mais o valor dele)
         IF tmp < 300                   // janela do grasnado (~0,3 s)
             GOSUB cv_audio_caw
         ENDIF
