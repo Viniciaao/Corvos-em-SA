@@ -1,5 +1,5 @@
 // ===========================================================================
-//  CORVOS DO GTA V  -  versao 2.2 (reescrito, corrigido e otimizado)
+//  CORVOS DO GTA V  -  versao 2.3 (reescrito, corrigido e otimizado)
 //
 //  Mod original: Dakurlz
 //  Creditos originais: JuniorDjjr (blog), MixMods, BrModStudio
@@ -24,6 +24,13 @@
 //                  saida: build/CORVOS.cs
 //
 //  HISTORICO
+//   2.3 - voo consertado (com a colisao desligada o GTA nao move o ped: o
+//         corvo ficava parado no ar batendo as asas), escolha dos poleiros
+//         (o mais perto do jogador, de preferencia escondido e sempre a mais
+//         de 25 m dele -- no lugar do antigo "precisa estar na tela", que
+//         fazia o corvo nascer bem na frente do jogador e sempre no mesmo
+//         ponto), som so perto do jogador (30 m), grasnado mais raro, tempos
+//         de espera menores e tudo isso ajustavel no CLEO/CORVOS.ini
 //   2.2 - voo corrigido (colisao volta a ficar ligada: desligada o ped nao se
 //         move), poleiros nao repetem (corvos nao nascem um dentro do outro),
 //         corvo longe do jogador desaparece em vez de virar npc, um corvo por
@@ -51,15 +58,16 @@ CONST_INT   STATE_DIE             4
 CONST_INT   AUDIO_STOP            0
 CONST_INT   AUDIO_PLAY            1
 
-CONST_INT   SPAWN_DELAY           500      // ms entre a chegada de um corvo e outro
-CONST_INT   RESPAWN_WAIT          10000    // ms de espera depois que um corvo sai
+CONST_INT   SPAWN_DELAY           250      // ms entre a chegada de um corvo e outro
+CONST_INT   RESPAWN_WAIT          3000     // ms de espera depois que um corvo sai
 CONST_INT   LOAD_TIMEOUT          15000    // ms para o modelo/animacao carregarem
 CONST_INT   PED_SCAN_TRIES        8        // quantos char a busca no poleiro pode percorrer
 CONST_INT   EVENT_WHIZZED          49      // "tiro passou de raspão" (080E)
-CONST_INT   CAW_DEFAULT_SEC         9      // "grasnado_a_cada" padrao (segundos)
+CONST_INT   CAW_DEFAULT_SEC        12      // "grasnado_a_cada" padrao (segundos)
 
 CONST_FLOAT DESPAWN_DIST          100.0    // distancia em que o corvo "esquece" o jogador
-CONST_FLOAT SPAWN_MIN_DIST        8.0      // nao nasce corvo colado no jogador
+CONST_FLOAT SPAWN_MIN_DIST        25.0     // nao nasce corvo mais perto que isso
+CONST_FLOAT SND_RANGE             30.0     // o som so toca a menos disso do jogador
 CONST_FLOAT FLY_SPEED             10.0     // velocidade de cruzeiro
 CONST_FLOAT CLIMB_SPEED           10.0     // velocidade de subida
 CONST_FLOAT SINK_SPEED            -3.0     // descida (planeio) perto do chao
@@ -74,11 +82,11 @@ CONST_FLOAT FIRE_ALERT_DIST       5.0      // fogo perto demais
 CONST_FLOAT CAR_ALERT_DIST        10.0     // carro perto demais
 CONST_FLOAT CAR_ALERT_SPEED       5.0      // ... e rapido demais
 CONST_FLOAT GROUND_FAR            100.0    // altura falsa sobre a agua (nunca pousa)
-CONST_FLOAT PERCH_MIN_DIST         3.0     // distancia minima entre dois corvos pousados
+CONST_FLOAT PERCH_MIN_DIST         4.0     // distancia minima entre dois corvos pousados
 
-// Enderecos de clima do GTA SA 1.0 (lidos com 0A8D read_memory)
-CONST_INT   ADDR_RAIN             0xC81324   // CWeather::Rain (float)
-CONST_INT   ADDR_WEATHER_TYPE     0xC8131C   // CWeather::NewWeatherType (byte)
+// Clima do GTA SA 1.0, lido da memoria com 0A8D READ_MEMORY (1 byte).
+// 0xC8131C = CWeather::NewWeatherType
+CONST_INT   ADDR_WEATHER_TYPE     0xC8131C
 
 
 // ---------------------------------------------------------------------------
@@ -216,8 +224,8 @@ WRITE_INT_TO_INI_FILE 0 "CLEO/CORVOS.ini" "corvos" "nascer_na_chuva"
 WRITE_INT_TO_INI_FILE 0 "CLEO/CORVOS.ini" "corvos" "nascer_na_tempestade_de_areia"
 WRITE_INT_TO_INI_FILE CAW_DEFAULT_SEC "CLEO/CORVOS.ini" "corvos" "grasnado_a_cada"
 WRITE_INT_TO_INI_FILE 0 "CLEO/CORVOS.ini" "corvos" "desligar_som"
-WRITE_FLOAT_TO_INI_FILE 0.7 "CLEO/CORVOS.ini" "corvos" "volume_grasnado"
-WRITE_FLOAT_TO_INI_FILE 0.5 "CLEO/CORVOS.ini" "corvos" "volume_asas"
+WRITE_FLOAT_TO_INI_FILE 0.6 "CLEO/CORVOS.ini" "corvos" "volume_grasnado"
+WRITE_FLOAT_TO_INI_FILE 0.4 "CLEO/CORVOS.ini" "corvos" "volume_asas"
 WRITE_INT_TO_INI_FILE SPAWN_DELAY "CLEO/CORVOS.ini" "corvos" "tempo_entre_corvos"
 WRITE_INT_TO_INI_FILE RESPAWN_WAIT "CLEO/CORVOS.ini" "corvos" "tempo_para_renascer"
 IF DOES_FILE_EXIST "CLEO/CORVOS.ini"
@@ -325,6 +333,7 @@ ENDIF
 IF st = STATE_FLY
     GOSUB cv_fly
 ENDIF
+GOSUB cv_audio_range
 RETURN
 
 
@@ -410,8 +419,11 @@ CLEAR_CHAR_LAST_WEAPON_DAMAGE h
 CLEAR_CHAR_LAST_DAMAGE_ENTITY h
 GOSUB cv_audio_wings
 state[slot] = STATE_CLIMB
-// NAO desligar a colisao aqui: sem colisao o motor nao aplica o impulso
-// (e o corvo fica parado no ar batendo as asas -- era o defeito da 2.1)
+// A COLISAO TEM QUE FICAR LIGADA. Com 0619 FALSE o GTA nao aplica velocidade
+// nenhuma no ped (o SET_CHAR_VELOCITY nao faz efeito) e o corvo fica parado no
+// ar batendo as asas. O mod original desligava a colisao so no primeiro
+// quadro da decolagem e religava logo em seguida.
+SET_CHAR_COLLISION h TRUE
 SET_CHAR_VELOCITY h 0.0 0.0 CLIMB_SPEED
 GET_CHAR_HEADING h ang
 SET_CHAR_ROTATION h 10.0 0.0 ang
@@ -599,6 +611,40 @@ ENDIF
 RETURN
 
 
+// cv_audio_range   o som so toca perto do jogador
+//
+// O corvo pode estar a 100 m (e ficar por la): sem isso o grasnado e as asas
+// continuavam tocando longe, e com varios corvos virava aquele barulho todo.
+// Fora do alcance o stream e parado e liberado; quando o jogador chega perto
+// de novo, o som e religado conforme o estado do corvo.
+cv_audio_range:
+IF LOCATE_CHAR_ANY_MEANS_CHAR_3D player h SND_RANGE SND_RANGE SND_RANGE 0
+    IF snd[slot] = 0
+        GOTO cv_audio_range_start
+    ENDIF
+    RETURN
+ENDIF
+IF NOT snd[slot] = 0
+    GOSUB cv_audio_off
+ENDIF
+RETURN
+
+cv_audio_range_start:
+st = state[slot]
+IF st = STATE_PERCH
+    GOSUB cv_audio_caw
+    RETURN
+ENDIF
+IF st = STATE_CLIMB
+    GOSUB cv_audio_wings
+    RETURN
+ENDIF
+IF st = STATE_FLY
+    GOSUB cv_audio_wings
+ENDIF
+RETURN
+
+
 cv_audio_wings:
 GOSUB cv_audio_off
 found = 1
@@ -640,15 +686,8 @@ READ_INT_FROM_INI_FILE "CLEO/CORVOS.ini" "corvos" "tempo_para_renascer" st
 IF timerb < st
     RETURN                            // acabou de sair um corvo
 ENDIF
-IF LOCATE_CHAR_ANY_MEANS_3D player px py pz SPAWN_MIN_DIST SPAWN_MIN_DIST SPAWN_MIN_DIST 0
-    RETURN                            // nasceria em cima do jogador
-ENDIF
-// dois corvos no mesmo ponto era o que fazia parecer "um corvo so":
-// se ja tem um corvo em cima deste poleiro, nao nasce outro
-GOSUB cv_perch_busy
-IF st = 1
-    RETURN
-ENDIF
+// a distancia minima do jogador e o "poleiro ja ocupado" sao conferidos na
+// propria tabela de areas (cv_scan), que escolhe o melhor ponto para nascer
 // so cria quando o modelo e a animacao estao mesmo carregados (sem esperar:
 // no proximo quadro a varredura tenta de novo)
 IF NOT HAS_SPECIAL_CHARACTER_LOADED CROW_SLOT
@@ -682,23 +721,32 @@ RETURN
 // ---------------------------------------------------------------------------
 cv_scan:
 // clima: por padrao o corvo nao nasce na chuva nem na tempestade de areia
-// (o CLEO/CORVOS.ini manda; o clima e lido da memoria do GTA SA 1.0)
+// (o CLEO/CORVOS.ini manda; o tipo de clima e lido da memoria do GTA SA 1.0)
+//
+// tmp = os dois bits do INI:  0 = nao nasce em nenhum dos dois (padrao)
+//                             1 = pode nascer na chuva
+//                             2 = pode nascer na tempestade de areia
+//                             3 = pode nascer nos dois
 st = cfg_misc / 4
 st *= 4
-tmp = cfg_misc - st                   // tmp = os dois bits de clima (0..3)
-found = tmp / 2                       // 1 = pode nascer na tempestade de areia
-IF found = 0
+tmp = cfg_misc - st
+IF NOT tmp = 0
     READ_MEMORY ADDR_WEATHER_TYPE 1 0 st
     IF st = WEATHER_SANDSTORM_DESERT
+    AND tmp < 2
         RETURN
     ENDIF
-ENDIF
-found *= 2
-st = tmp - found                      // st = 1 quando pode nascer na chuva
-IF st = 0
-    READ_MEMORY ADDR_RAIN 4 0 rnd     // CWeather::Rain (float)
-    IF rnd > 0.0
-        RETURN
+    IF st = WEATHER_RAINY_SF
+    AND NOT tmp = 3
+        IF NOT tmp = 1
+            RETURN
+        ENDIF
+    ENDIF
+    IF st = WEATHER_RAINY_COUNTRYSIDE
+    AND NOT tmp = 3
+        IF NOT tmp = 1
+            RETURN
+        ENDIF
     ENDIF
 ENDIF
 {{PERCH_TABLE}}

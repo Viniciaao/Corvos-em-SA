@@ -139,8 +139,9 @@ foi até o byte:
 
 1. **Compilação**: `gta3sc` (compilador de GTA3script, C++17, compilado aqui a
    partir do fonte) sem erros nem avisos. O `.cs` da 2.2 tem 10.624 bytes /
-   1.131 instruções (a 2.1 tinha 8.882 bytes, contra ~15 KB de cada script
-   original).
+   2.413 instruções na 2.3 (a 2.1 tinha 8.882 bytes; ~15 KB de cada script
+   original, cinco deles). O crescimento vem da escolha do poleiro: cada
+   candidato é conferido e comparado, em vez de ser o primeiro da lista.
 2. **Formato do arquivo**: o CLEO 4 lê o `.cs` inteiro como corpo do script
    (`CCustomScript::CCustomScript`, `CScriptEngine.cpp`) — e é exatamente assim
    que o arquivo sai do compilador: sem cabeçalho, começando direto no primeiro
@@ -262,7 +263,73 @@ primeira vez que a partida carrega — o INI que vai no pacote é o mesmo arquiv
 só com os comentários explicando cada chave.
 
 
-## 7. Como recompilar
+## 7. Terceira rodada de testes em jogo (v2.3)
+
+Cinco pontos novos, quase todos no mesmo lugar: **como e onde o corvo nasce**.
+
+**1. Poleiro escolhido por distância, não por "estar na tela".** O mod original
+só soltava o corvo quando o ponto do poleiro estava **dentro da câmera**
+(`00C2 sphere_onscreen`) — era assim que o autor fazia o bicho "aparecer na
+cena". O efeito colateral: o corvo nascia **na frente do jogador** (dava para ver
+o corpo surgindo do nada) e sempre nos mesmos pontos. Agora o `cv_scan` escolhe,
+em cada quadro, **o poleiro mais perto do jogador** entre os que passam nos
+filtros, e um poleiro que esteja na tela leva **penalidade de 2x** na distância
+— ou seja, o corvo prefere nascer **escondido** (atrás do jogador, fora da
+câmera) e só nasce à vista quando não há outra opção. O nascimento fica a pelo
+menos **25 m** do jogador (`SPAWN_MIN_DIST`, era 8 m), então o "aparecimento" no
+campo de visão praticamente não se nota.
+
+**2. Dois corvos a 1,66 m (os dois colados no chão).** Eram os poleiros do
+`CROW2` e do `CROW3`, que na área 1 ficam a **1,66 m** um do outro (área 5 chega a
+1,00 m). Duas providências:
+
+* a pedido do jogador, o poleiro do **CROW3** foi **movido** de
+  `(-1464,8085, -1552,3181, 101,7578)` para `(-1466,9965, -1554,3170, 101,7578)`
+  (a lista de ajustes manuais fica no topo de `tools/gen_corvos.py`, em
+  `PERCH_OVERRIDES`, para qualquer poleiro poder ser corrigido desse jeito);
+* dois corvos **nunca mais** ficam a menos de **4 m** um do outro
+  (`PERCH_MIN_DIST`, era 3 m): o `cv_perch_busy` é consultado **candidato por
+  candidato** dentro do `cv_scan`, então o corvo simplesmente vai para o próximo
+  poleiro livre da área em vez de nascer dentro do outro.
+
+**3. Voo: era o mesmo defeito da 2.1.** O `SET_CHAR_COLLISION h FALSE` da
+decolagem sobreviveu na 2.2 e o ped **não se move** com a colisão desligada (ver
+a seção 6, item 1). O corvo levanta voo batendo as asas e fica parado no ar. Na
+2.3 a colisão nunca é desligada — o `cv_takeoff` liga explicitamente
+(`0619 TRUE`) antes de aplicar o impulso.
+
+**4. Corvo que "caía no chão e virava NPC" e área que ficava 10 minutos sem
+corvo.** São os dois lados do mesmo laço: quando o jogador se afasta mais de
+100 m, a vaga era liberada com `MARK_CHAR_AS_NO_LONGER_NEEDED` — o corpo
+continuava no mundo como **pedestre comum** — e o `cv_spawn` esperava
+`tempo_para_renascer` antes de qualquer nascimento novo. Agora o corpo é
+**apagado** (`009B DELETE_CHAR`, só quando está fora da tela) e a espera padrão
+caiu de 10 s para **3 s** (`tempo_para_renascer`, ajustável no INI), com 0,25 s
+entre um corvo e outro (`tempo_entre_corvos`).
+
+**5. Som alto / som de longe.** Três mudanças:
+
+* o **grasnado não fica mais em laço** (toca uma vez, como um grasnado de
+  verdade) e ficou mais raro (`grasnado_a_cada`, padrão 12 s, era 9 s);
+* as asas continuam em laço, mas **só a menos de 30 m** do jogador
+  (`SND_RANGE`): fora disso o stream é parado e, quando o jogador volta a
+  chegar perto, o som é religado conforme o estado do corvo — antes o som
+  continuava tocando com o corvo do outro lado do quarteirão;
+* os volumes caíram para 0.6 (grasnado) e 0.4 (asas) e dá para mudar os dois no
+  INI (`volume_grasnado`, `volume_asas`), de 0.0 a 1.0.
+
+**Clima.** A checagem de chuva passou a olhar só o **tipo de clima**
+(`CWeather::NewWeatherType`, 0xC8131C, lido com `0A8D READ_MEMORY`), em vez de
+também olhar a intensidade da chuva (`CWeather::Rain`) — a intensidade continua
+> 0 depois da chuva passar e podia deixar a área sem corvos por muito tempo.
+
+**Arquivo de configuração.** O `CLEO/CORVOS.ini` ganhou os tempos e ficou
+documentado; o resto (distâncias de nascimento e de som, vida, velocidade,
+alertas) continua no fonte, na parte CONFIGURACAO — são constantes que mudam o
+comportamento do bicho e exigem recompilar.
+
+
+## 8. Como recompilar
 
 ```sh
 sh tools/build.sh      # gera src/CORVOS.sc e compila para build/CLEO/CORVOS.cs
@@ -288,7 +355,7 @@ dist/                      pacote final (CLEO + gta3img + LEIAME)
 
 ---
 
-## 8. Créditos
+## 9. Créditos
 
 * **Dakurlz** — mod original e scripts `CROW1` … `CROW5`.
 * **JuniorDjjr**, **MixMods**, **BrModStudio** — divulgação/ferramentas citadas no

@@ -1,5 +1,5 @@
 // ===========================================================================
-//  CORVOS DO GTA V  -  versao 2.2 (reescrito, corrigido e otimizado)
+//  CORVOS DO GTA V  -  versao 2.3 (reescrito, corrigido e otimizado)
 //
 //  Mod original: Dakurlz
 //  Creditos originais: JuniorDjjr (blog), MixMods, BrModStudio
@@ -24,6 +24,13 @@
 //                  saida: build/CORVOS.cs
 //
 //  HISTORICO
+//   2.3 - voo consertado (com a colisao desligada o GTA nao move o ped: o
+//         corvo ficava parado no ar batendo as asas), escolha dos poleiros
+//         (o mais perto do jogador, de preferencia escondido e sempre a mais
+//         de 25 m dele -- no lugar do antigo "precisa estar na tela", que
+//         fazia o corvo nascer bem na frente do jogador e sempre no mesmo
+//         ponto), som so perto do jogador (30 m), grasnado mais raro, tempos
+//         de espera menores e tudo isso ajustavel no CLEO/CORVOS.ini
 //   2.2 - voo corrigido (colisao volta a ficar ligada: desligada o ped nao se
 //         move), poleiros nao repetem (corvos nao nascem um dentro do outro),
 //         corvo longe do jogador desaparece em vez de virar npc, um corvo por
@@ -51,15 +58,16 @@ CONST_INT   STATE_DIE             4
 CONST_INT   AUDIO_STOP            0
 CONST_INT   AUDIO_PLAY            1
 
-CONST_INT   SPAWN_DELAY           500      // ms entre a chegada de um corvo e outro
-CONST_INT   RESPAWN_WAIT          10000    // ms de espera depois que um corvo sai
+CONST_INT   SPAWN_DELAY           250      // ms entre a chegada de um corvo e outro
+CONST_INT   RESPAWN_WAIT          3000     // ms de espera depois que um corvo sai
 CONST_INT   LOAD_TIMEOUT          15000    // ms para o modelo/animacao carregarem
 CONST_INT   PED_SCAN_TRIES        8        // quantos char a busca no poleiro pode percorrer
 CONST_INT   EVENT_WHIZZED          49      // "tiro passou de raspão" (080E)
-CONST_INT   CAW_DEFAULT_SEC         9      // "grasnado_a_cada" padrao (segundos)
+CONST_INT   CAW_DEFAULT_SEC        12      // "grasnado_a_cada" padrao (segundos)
 
 CONST_FLOAT DESPAWN_DIST          100.0    // distancia em que o corvo "esquece" o jogador
-CONST_FLOAT SPAWN_MIN_DIST        8.0      // nao nasce corvo colado no jogador
+CONST_FLOAT SPAWN_MIN_DIST        25.0     // nao nasce corvo mais perto que isso
+CONST_FLOAT SND_RANGE             30.0     // o som so toca a menos disso do jogador
 CONST_FLOAT FLY_SPEED             10.0     // velocidade de cruzeiro
 CONST_FLOAT CLIMB_SPEED           10.0     // velocidade de subida
 CONST_FLOAT SINK_SPEED            -3.0     // descida (planeio) perto do chao
@@ -74,11 +82,11 @@ CONST_FLOAT FIRE_ALERT_DIST       5.0      // fogo perto demais
 CONST_FLOAT CAR_ALERT_DIST        10.0     // carro perto demais
 CONST_FLOAT CAR_ALERT_SPEED       5.0      // ... e rapido demais
 CONST_FLOAT GROUND_FAR            100.0    // altura falsa sobre a agua (nunca pousa)
-CONST_FLOAT PERCH_MIN_DIST         3.0     // distancia minima entre dois corvos pousados
+CONST_FLOAT PERCH_MIN_DIST         4.0     // distancia minima entre dois corvos pousados
 
-// Enderecos de clima do GTA SA 1.0 (lidos com 0A8D read_memory)
-CONST_INT   ADDR_RAIN             0xC81324   // CWeather::Rain (float)
-CONST_INT   ADDR_WEATHER_TYPE     0xC8131C   // CWeather::NewWeatherType (byte)
+// Clima do GTA SA 1.0, lido da memoria com 0A8D READ_MEMORY (1 byte).
+// 0xC8131C = CWeather::NewWeatherType
+CONST_INT   ADDR_WEATHER_TYPE     0xC8131C
 
 
 // ---------------------------------------------------------------------------
@@ -216,8 +224,8 @@ WRITE_INT_TO_INI_FILE 0 "CLEO/CORVOS.ini" "corvos" "nascer_na_chuva"
 WRITE_INT_TO_INI_FILE 0 "CLEO/CORVOS.ini" "corvos" "nascer_na_tempestade_de_areia"
 WRITE_INT_TO_INI_FILE CAW_DEFAULT_SEC "CLEO/CORVOS.ini" "corvos" "grasnado_a_cada"
 WRITE_INT_TO_INI_FILE 0 "CLEO/CORVOS.ini" "corvos" "desligar_som"
-WRITE_FLOAT_TO_INI_FILE 0.7 "CLEO/CORVOS.ini" "corvos" "volume_grasnado"
-WRITE_FLOAT_TO_INI_FILE 0.5 "CLEO/CORVOS.ini" "corvos" "volume_asas"
+WRITE_FLOAT_TO_INI_FILE 0.6 "CLEO/CORVOS.ini" "corvos" "volume_grasnado"
+WRITE_FLOAT_TO_INI_FILE 0.4 "CLEO/CORVOS.ini" "corvos" "volume_asas"
 WRITE_INT_TO_INI_FILE SPAWN_DELAY "CLEO/CORVOS.ini" "corvos" "tempo_entre_corvos"
 WRITE_INT_TO_INI_FILE RESPAWN_WAIT "CLEO/CORVOS.ini" "corvos" "tempo_para_renascer"
 IF DOES_FILE_EXIST "CLEO/CORVOS.ini"
@@ -325,6 +333,7 @@ ENDIF
 IF st = STATE_FLY
     GOSUB cv_fly
 ENDIF
+GOSUB cv_audio_range
 RETURN
 
 
@@ -410,8 +419,11 @@ CLEAR_CHAR_LAST_WEAPON_DAMAGE h
 CLEAR_CHAR_LAST_DAMAGE_ENTITY h
 GOSUB cv_audio_wings
 state[slot] = STATE_CLIMB
-// NAO desligar a colisao aqui: sem colisao o motor nao aplica o impulso
-// (e o corvo fica parado no ar batendo as asas -- era o defeito da 2.1)
+// A COLISAO TEM QUE FICAR LIGADA. Com 0619 FALSE o GTA nao aplica velocidade
+// nenhuma no ped (o SET_CHAR_VELOCITY nao faz efeito) e o corvo fica parado no
+// ar batendo as asas. O mod original desligava a colisao so no primeiro
+// quadro da decolagem e religava logo em seguida.
+SET_CHAR_COLLISION h TRUE
 SET_CHAR_VELOCITY h 0.0 0.0 CLIMB_SPEED
 GET_CHAR_HEADING h ang
 SET_CHAR_ROTATION h 10.0 0.0 ang
@@ -599,6 +611,40 @@ ENDIF
 RETURN
 
 
+// cv_audio_range   o som so toca perto do jogador
+//
+// O corvo pode estar a 100 m (e ficar por la): sem isso o grasnado e as asas
+// continuavam tocando longe, e com varios corvos virava aquele barulho todo.
+// Fora do alcance o stream e parado e liberado; quando o jogador chega perto
+// de novo, o som e religado conforme o estado do corvo.
+cv_audio_range:
+IF LOCATE_CHAR_ANY_MEANS_CHAR_3D player h SND_RANGE SND_RANGE SND_RANGE 0
+    IF snd[slot] = 0
+        GOTO cv_audio_range_start
+    ENDIF
+    RETURN
+ENDIF
+IF NOT snd[slot] = 0
+    GOSUB cv_audio_off
+ENDIF
+RETURN
+
+cv_audio_range_start:
+st = state[slot]
+IF st = STATE_PERCH
+    GOSUB cv_audio_caw
+    RETURN
+ENDIF
+IF st = STATE_CLIMB
+    GOSUB cv_audio_wings
+    RETURN
+ENDIF
+IF st = STATE_FLY
+    GOSUB cv_audio_wings
+ENDIF
+RETURN
+
+
 cv_audio_wings:
 GOSUB cv_audio_off
 found = 1
@@ -640,15 +686,8 @@ READ_INT_FROM_INI_FILE "CLEO/CORVOS.ini" "corvos" "tempo_para_renascer" st
 IF timerb < st
     RETURN                            // acabou de sair um corvo
 ENDIF
-IF LOCATE_CHAR_ANY_MEANS_3D player px py pz SPAWN_MIN_DIST SPAWN_MIN_DIST SPAWN_MIN_DIST 0
-    RETURN                            // nasceria em cima do jogador
-ENDIF
-// dois corvos no mesmo ponto era o que fazia parecer "um corvo so":
-// se ja tem um corvo em cima deste poleiro, nao nasce outro
-GOSUB cv_perch_busy
-IF st = 1
-    RETURN
-ENDIF
+// a distancia minima do jogador e o "poleiro ja ocupado" sao conferidos na
+// propria tabela de areas (cv_scan), que escolhe o melhor ponto para nascer
 // so cria quando o modelo e a animacao estao mesmo carregados (sem esperar:
 // no proximo quadro a varredura tenta de novo)
 IF NOT HAS_SPECIAL_CHARACTER_LOADED CROW_SLOT
@@ -682,23 +721,32 @@ RETURN
 // ---------------------------------------------------------------------------
 cv_scan:
 // clima: por padrao o corvo nao nasce na chuva nem na tempestade de areia
-// (o CLEO/CORVOS.ini manda; o clima e lido da memoria do GTA SA 1.0)
+// (o CLEO/CORVOS.ini manda; o tipo de clima e lido da memoria do GTA SA 1.0)
+//
+// tmp = os dois bits do INI:  0 = nao nasce em nenhum dos dois (padrao)
+//                             1 = pode nascer na chuva
+//                             2 = pode nascer na tempestade de areia
+//                             3 = pode nascer nos dois
 st = cfg_misc / 4
 st *= 4
-tmp = cfg_misc - st                   // tmp = os dois bits de clima (0..3)
-found = tmp / 2                       // 1 = pode nascer na tempestade de areia
-IF found = 0
+tmp = cfg_misc - st
+IF NOT tmp = 0
     READ_MEMORY ADDR_WEATHER_TYPE 1 0 st
     IF st = WEATHER_SANDSTORM_DESERT
+    AND tmp < 2
         RETURN
     ENDIF
-ENDIF
-found *= 2
-st = tmp - found                      // st = 1 quando pode nascer na chuva
-IF st = 0
-    READ_MEMORY ADDR_RAIN 4 0 rnd     // CWeather::Rain (float)
-    IF rnd > 0.0
-        RETURN
+    IF st = WEATHER_RAINY_SF
+    AND NOT tmp = 3
+        IF NOT tmp = 1
+            RETURN
+        ENDIF
+    ENDIF
+    IF st = WEATHER_RAINY_COUNTRYSIDE
+    AND NOT tmp = 3
+        IF NOT tmp = 1
+            RETURN
+        ENDIF
     ENDIF
 ENDIF
 // Tabela gerada por tools/gen_corvos.py a partir de CROW1..CROW5.
@@ -709,685 +757,1685 @@ ENDIF
 cv_area_01:
 IF LOCATE_CHAR_ANY_MEANS_3D player -1464.7968 -1558.324 101.7578 100.0 100.0 100.0 0
 AND NOT LOCATE_CHAR_ANY_MEANS_3D player -1465.1469 -1551.7413 101.7578 10.0 10.0 10.0 0
-    GOTO cv_area_01_p1
+    GOTO cv_area_01_sel
 ENDIF
 GOTO cv_area_02
-cv_area_01_p1:
-IF IS_POINT_ON_SCREEN -1466.8788 -1555.0344 101.7578 10.0
+cv_area_01_sel:
+GET_CHAR_COORDINATES player fx fy fz
+rnd = 0.0                       // melhor distancia ate agora
+found = 0                       // numero do poleiro escolhido
+// candidato 1: (-1466.8788, -1555.0344, 101.7578) CROW1.txt
+px = -1466.8788
+py = -1555.0344
+pz = 101.7578
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -1466.8788 -1555.0344 101.7578 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -1466.8788 -1555.0344 101.7578 10.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 1
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 2: (-1464.7902, -1550.6583, 101.7578) CROW2.txt
+px = -1464.7902
+py = -1550.6583
+pz = 101.7578
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -1464.7902 -1550.6583 101.7578 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -1464.7902 -1550.6583 101.7578 20.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 2
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 3: (-1466.9965, -1554.3170, 101.7578) CROW3.txt (ajustado)
+px = -1466.9965
+py = -1554.317
+pz = 101.7578
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -1466.9965 -1554.317 101.7578 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -1466.9965 -1554.317 101.7578 20.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 3
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 4: (-1469.8451, -1553.5935, 102.1705) CROW4.txt
+px = -1469.8451
+py = -1553.5935
+pz = 102.1705
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -1469.8451 -1553.5935 102.1705 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -1469.8451 -1553.5935 102.1705 20.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 4
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 5: (-1466.8971, -1551.9209, 103.5408) CROW5.txt
+px = -1466.8971
+py = -1551.9209
+pz = 103.5408
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -1466.8971 -1551.9209 103.5408 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -1466.8971 -1551.9209 103.5408 20.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 5
+        ENDIF
+    ENDIF
+ENDIF
+IF found = 1
     px = -1466.8788
     py = -1555.0344
     pz = 101.7578
     ang = 208.972
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_01_p2:
-IF IS_POINT_ON_SCREEN -1464.7902 -1550.6583 101.7578 20.0
+IF found = 2
     px = -1464.7902
     py = -1550.6583
     pz = 101.7578
     ang = 281.4805
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_01_p3:
-IF IS_POINT_ON_SCREEN -1464.8085 -1552.3181 101.7578 20.0
-    px = -1464.8085
-    py = -1552.3181
+IF found = 3
+    px = -1466.9965
+    py = -1554.317
     pz = 101.7578
     ang = 265.2596
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_01_p4:
-IF IS_POINT_ON_SCREEN -1469.8451 -1553.5935 102.1705 20.0
+IF found = 4
     px = -1469.8451
     py = -1553.5935
     pz = 102.1705
     ang = 274.0479
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_01_p5:
-IF IS_POINT_ON_SCREEN -1466.8971 -1551.9209 103.5408 20.0
+IF found = 5
     px = -1466.8971
     py = -1551.9209
     pz = 103.5408
     ang = 268.99
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-GOTO cv_area_02
+IF found = 0
+    GOTO cv_area_02
+ENDIF
+GOSUB cv_spawn
+RETURN                          // um corvo por quadro, no maximo
 
 // ---- AREA 02   gatilho (-1055.8, -1184.1, 129.2) raio 100   5 poleiro(s)
 cv_area_02:
 IF LOCATE_CHAR_ANY_MEANS_3D player -1055.7739 -1184.0836 129.1555 100.0 100.0 100.0 0
 AND NOT LOCATE_CHAR_ANY_MEANS_3D player -1060.0992 -1182.5345 129.2187 30.0 30.0 30.0 0
-    GOTO cv_area_02_p1
+    GOTO cv_area_02_sel
 ENDIF
 GOTO cv_area_03
-cv_area_02_p1:
-IF IS_POINT_ON_SCREEN -1064.9078 -1157.7363 131.3952 5.0
+cv_area_02_sel:
+GET_CHAR_COORDINATES player fx fy fz
+rnd = 0.0                       // melhor distancia ate agora
+found = 0                       // numero do poleiro escolhido
+// candidato 1: (-1064.9078, -1157.7363, 131.3952) CROW1.txt
+px = -1064.9078
+py = -1157.7363
+pz = 131.3952
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -1064.9078 -1157.7363 131.3952 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -1064.9078 -1157.7363 131.3952 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 1
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 2: (-1033.0579, -1193.5659, 130.7096) CROW2.txt
+px = -1033.0579
+py = -1193.5659
+pz = 130.7096
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -1033.0579 -1193.5659 130.7096 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -1033.0579 -1193.5659 130.7096 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 2
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 3: (-1037.8374, -1180.5306, 132.4289) CROW3.txt
+px = -1037.8374
+py = -1180.5306
+pz = 132.4289
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -1037.8374 -1180.5306 132.4289 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -1037.8374 -1180.5306 132.4289 10.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 3
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 4: (-1061.3170, -1206.5726, 134.2378) CROW4.txt
+px = -1061.317
+py = -1206.5726
+pz = 134.2378
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -1061.317 -1206.5726 134.2378 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -1061.317 -1206.5726 134.2378 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 4
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 5: (-1069.6578, -1172.4850, 151.2312) CROW5.txt
+px = -1069.6578
+py = -1172.485
+pz = 151.2312
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -1069.6578 -1172.485 151.2312 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -1069.6578 -1172.485 151.2312 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 5
+        ENDIF
+    ENDIF
+ENDIF
+IF found = 1
     px = -1064.9078
     py = -1157.7363
     pz = 131.3952
     ang = 265.9022
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_02_p2:
-IF IS_POINT_ON_SCREEN -1033.0579 -1193.5659 130.7096 5.0
+IF found = 2
     px = -1033.0579
     py = -1193.5659
     pz = 130.7096
     ang = 90.8257
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_02_p3:
-IF IS_POINT_ON_SCREEN -1037.8374 -1180.5306 132.4289 10.0
+IF found = 3
     px = -1037.8374
     py = -1180.5306
     pz = 132.4289
     ang = 110.3424
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_02_p4:
-IF IS_POINT_ON_SCREEN -1061.317 -1206.5726 134.2378 5.0
+IF found = 4
     px = -1061.317
     py = -1206.5726
     pz = 134.2378
     ang = 276.1524
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_02_p5:
-IF IS_POINT_ON_SCREEN -1069.6578 -1172.485 151.2312 5.0
+IF found = 5
     px = -1069.6578
     py = -1172.485
     pz = 151.2312
     ang = 230.3993
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-GOTO cv_area_03
+IF found = 0
+    GOTO cv_area_03
+ENDIF
+GOSUB cv_spawn
+RETURN                          // um corvo por quadro, no maximo
 
 // ---- AREA 03   gatilho (-383.5, -1436.5, 32.3) raio 100   5 poleiro(s)
 cv_area_03:
 IF LOCATE_CHAR_ANY_MEANS_3D player -383.5046 -1436.4948 32.3389 100.0 100.0 100.0 0
 AND NOT LOCATE_CHAR_ANY_MEANS_3D player -383.5046 -1436.4948 32.3389 30.0 30.0 30.0 0
-    GOTO cv_area_03_p1
+    GOTO cv_area_03_sel
 ENDIF
 GOTO cv_area_04
-cv_area_03_p1:
-IF IS_POINT_ON_SCREEN -367.7802 -1446.1356 41.4857 5.0
+cv_area_03_sel:
+GET_CHAR_COORDINATES player fx fy fz
+rnd = 0.0                       // melhor distancia ate agora
+found = 0                       // numero do poleiro escolhido
+// candidato 1: (-367.7802, -1446.1356, 41.4857) CROW1.txt
+px = -367.7802
+py = -1446.1356
+pz = 41.4857
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -367.7802 -1446.1356 41.4857 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -367.7802 -1446.1356 41.4857 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 1
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 2: (-372.1537, -1431.8000, 34.0000) CROW2.txt
+px = -372.1537
+py = -1431.8
+pz = 34.0
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -372.1537 -1431.8 34.0 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -372.1537 -1431.8 34.0 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 2
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 3: (-372.2798, -1434.6667, 27.3188) CROW3.txt
+px = -372.2798
+py = -1434.6667
+pz = 27.3188
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -372.2798 -1434.6667 27.3188 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -372.2798 -1434.6667 27.3188 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 3
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 4: (-386.3780, -1418.4358, 28.8185) CROW4.txt
+px = -386.378
+py = -1418.4358
+pz = 28.8185
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -386.378 -1418.4358 28.8185 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -386.378 -1418.4358 28.8185 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 4
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 5: (-383.5046, -1436.4948, 32.3389) CROW5.txt
+px = -383.5046
+py = -1436.4948
+pz = 32.3389
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -383.5046 -1436.4948 32.3389 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -383.5046 -1436.4948 32.3389 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 5
+        ENDIF
+    ENDIF
+ENDIF
+IF found = 1
     px = -367.7802
     py = -1446.1356
     pz = 41.4857
     ang = 52.0551
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_03_p2:
-IF IS_POINT_ON_SCREEN -372.1537 -1431.8 34.0 5.0
+IF found = 2
     px = -372.1537
     py = -1431.8
     pz = 34.0
     ang = 87.9493
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_03_p3:
-IF IS_POINT_ON_SCREEN -372.2798 -1434.6667 27.3188 5.0
+IF found = 3
     px = -372.2798
     py = -1434.6667
     pz = 27.3188
     ang = 89.8003
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_03_p4:
-IF IS_POINT_ON_SCREEN -386.378 -1418.4358 28.8185 5.0
+IF found = 4
     px = -386.378
     py = -1418.4358
     pz = 28.8185
     ang = 264.7869
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_03_p5:
-IF IS_POINT_ON_SCREEN -383.5046 -1436.4948 32.3389 5.0
+IF found = 5
     px = -383.5046
     py = -1436.4948
     pz = 32.3389
     ang = 270.5954
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-GOTO cv_area_04
+IF found = 0
+    GOTO cv_area_04
+ENDIF
+GOSUB cv_spawn
+RETURN                          // um corvo por quadro, no maximo
 
 // ---- AREA 04   gatilho (-352.4, -1047.3, 62.3) raio 100   5 poleiro(s)
 cv_area_04:
 IF LOCATE_CHAR_ANY_MEANS_3D player -352.3501 -1047.2784 62.296 100.0 100.0 100.0 0
 AND NOT LOCATE_CHAR_ANY_MEANS_3D player -352.3501 -1047.2784 62.296 30.0 30.0 30.0 0
-    GOTO cv_area_04_p1
+    GOTO cv_area_04_sel
 ENDIF
 GOTO cv_area_05
-cv_area_04_p1:
-IF IS_POINT_ON_SCREEN -352.3501 -1047.2784 62.296 5.0
+cv_area_04_sel:
+GET_CHAR_COORDINATES player fx fy fz
+rnd = 0.0                       // melhor distancia ate agora
+found = 0                       // numero do poleiro escolhido
+// candidato 1: (-352.3501, -1047.2784, 62.2960) CROW1.txt
+px = -352.3501
+py = -1047.2784
+pz = 62.296
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -352.3501 -1047.2784 62.296 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -352.3501 -1047.2784 62.296 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 1
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 2: (-380.8538, -1043.7256, 62.2499) CROW2.txt
+px = -380.8538
+py = -1043.7256
+pz = 62.2499
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -380.8538 -1043.7256 62.2499 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -380.8538 -1043.7256 62.2499 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 2
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 3: (-374.5880, -1043.1473, 61.9892) CROW3.txt
+px = -374.588
+py = -1043.1473
+pz = 61.9892
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -374.588 -1043.1473 61.9892 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -374.588 -1043.1473 61.9892 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 3
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 4: (-352.4305, -1037.0093, 62.8199) CROW4.txt
+px = -352.4305
+py = -1037.0093
+pz = 62.8199
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -352.4305 -1037.0093 62.8199 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -352.4305 -1037.0093 62.8199 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 4
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 5: (-373.4202, -1066.0203, 60.6072) CROW5.txt
+px = -373.4202
+py = -1066.0203
+pz = 60.6072
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -373.4202 -1066.0203 60.6072 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -373.4202 -1066.0203 60.6072 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 5
+        ENDIF
+    ENDIF
+ENDIF
+IF found = 1
     px = -352.3501
     py = -1047.2784
     pz = 62.296
     ang = 144.8885
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_04_p2:
-IF IS_POINT_ON_SCREEN -380.8538 -1043.7256 62.2499 5.0
+IF found = 2
     px = -380.8538
     py = -1043.7256
     pz = 62.2499
     ang = 186.899
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_04_p3:
-IF IS_POINT_ON_SCREEN -374.588 -1043.1473 61.9892 5.0
+IF found = 3
     px = -374.588
     py = -1043.1473
     pz = 61.9892
     ang = 190.3457
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_04_p4:
-IF IS_POINT_ON_SCREEN -352.4305 -1037.0093 62.8199 5.0
+IF found = 4
     px = -352.4305
     py = -1037.0093
     pz = 62.8199
     ang = 90.4147
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_04_p5:
-IF IS_POINT_ON_SCREEN -373.4202 -1066.0203 60.6072 5.0
+IF found = 5
     px = -373.4202
     py = -1066.0203
     pz = 60.6072
     ang = 343.277
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-GOTO cv_area_05
+IF found = 0
+    GOTO cv_area_05
+ENDIF
+GOSUB cv_spawn
+RETURN                          // um corvo por quadro, no maximo
 
 // ---- AREA 05   gatilho (-2034.5, -2535.4, 43.3) raio 100   5 poleiro(s)
 cv_area_05:
 IF LOCATE_CHAR_ANY_MEANS_3D player -2034.4563 -2535.4041 43.3446 100.0 100.0 100.0 0
-    GOTO cv_area_05_p1
+    GOTO cv_area_05_sel
 ENDIF
 GOTO cv_area_06
-cv_area_05_p1:
-IF IS_POINT_ON_SCREEN -2062.801 -2535.3276 34.1357 5.0
+cv_area_05_sel:
+GET_CHAR_COORDINATES player fx fy fz
+rnd = 0.0                       // melhor distancia ate agora
+found = 0                       // numero do poleiro escolhido
+// candidato 1: (-2062.8010, -2535.3276, 34.1357) CROW1.txt
+px = -2062.801
+py = -2535.3276
+pz = 34.1357
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -2062.801 -2535.3276 34.1357 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -2062.801 -2535.3276 34.1357 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 1
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 2: (-2056.6780, -2507.3511, 32.8195) CROW2.txt
+px = -2056.678
+py = -2507.3511
+pz = 32.8195
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -2056.678 -2507.3511 32.8195 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -2056.678 -2507.3511 32.8195 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 2
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 3: (-2034.4563, -2535.4041, 43.3446) CROW3.txt
+px = -2034.4563
+py = -2535.4041
+pz = 43.3446
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -2034.4563 -2535.4041 43.3446 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -2034.4563 -2535.4041 43.3446 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 3
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 4: (-2052.2615, -2539.8887, 33.0796) CROW4.txt
+px = -2052.2615
+py = -2539.8887
+pz = 33.0796
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -2052.2615 -2539.8887 33.0796 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -2052.2615 -2539.8887 33.0796 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 4
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 5: (-2034.4563, -2535.4041, 42.3446) CROW5.txt
+px = -2034.4563
+py = -2535.4041
+pz = 42.3446
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -2034.4563 -2535.4041 42.3446 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -2034.4563 -2535.4041 42.3446 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 5
+        ENDIF
+    ENDIF
+ENDIF
+IF found = 1
     px = -2062.801
     py = -2535.3276
     pz = 34.1357
     ang = 266.9862
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_05_p2:
-IF IS_POINT_ON_SCREEN -2056.678 -2507.3511 32.8195 5.0
+IF found = 2
     px = -2056.678
     py = -2507.3511
     pz = 32.8195
     ang = 240.0392
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_05_p3:
-IF IS_POINT_ON_SCREEN -2034.4563 -2535.4041 43.3446 5.0
+IF found = 3
     px = -2034.4563
     py = -2535.4041
     pz = 43.3446
     ang = 73.971
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_05_p4:
-IF IS_POINT_ON_SCREEN -2052.2615 -2539.8887 33.0796 5.0
+IF found = 4
     px = -2052.2615
     py = -2539.8887
     pz = 33.0796
     ang = 7.857
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_05_p5:
-IF IS_POINT_ON_SCREEN -2034.4563 -2535.4041 42.3446 5.0
+IF found = 5
     px = -2034.4563
     py = -2535.4041
     pz = 42.3446
     ang = 73.971
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-GOTO cv_area_06
+IF found = 0
+    GOTO cv_area_06
+ENDIF
+GOSUB cv_spawn
+RETURN                          // um corvo por quadro, no maximo
 
 // ---- AREA 06   gatilho (-2807.3, -1530.0, 143.8) raio 100   5 poleiro(s)
 cv_area_06:
 IF LOCATE_CHAR_ANY_MEANS_3D player -2807.282 -1530.0153 143.8001 100.0 100.0 100.0 0
-    GOTO cv_area_06_p1
+    GOTO cv_area_06_sel
 ENDIF
 GOTO cv_area_07
-cv_area_06_p1:
-IF IS_POINT_ON_SCREEN -2807.282 -1530.0153 142.8001 5.0
+cv_area_06_sel:
+GET_CHAR_COORDINATES player fx fy fz
+rnd = 0.0                       // melhor distancia ate agora
+found = 0                       // numero do poleiro escolhido
+// candidato 1: (-2807.2820, -1530.0153, 142.8001) CROW1.txt
+px = -2807.282
+py = -1530.0153
+pz = 142.8001
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -2807.282 -1530.0153 142.8001 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -2807.282 -1530.0153 142.8001 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 1
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 2: (-2807.4128, -1527.5131, 143.8184) CROW2.txt
+px = -2807.4128
+py = -1527.5131
+pz = 143.8184
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -2807.4128 -1527.5131 143.8184 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -2807.4128 -1527.5131 143.8184 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 2
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 3: (-2807.2031, -1521.8174, 143.7891) CROW3.txt
+px = -2807.2031
+py = -1521.8174
+pz = 143.7891
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -2807.2031 -1521.8174 143.7891 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -2807.2031 -1521.8174 143.7891 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 3
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 4: (-2814.1272, -1509.1133, 142.3966) CROW4.txt
+px = -2814.1272
+py = -1509.1133
+pz = 142.3966
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -2814.1272 -1509.1133 142.3966 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -2814.1272 -1509.1133 142.3966 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 4
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 5: (-2804.8135, -1514.7708, 142.1157) CROW5.txt
+px = -2804.8135
+py = -1514.7708
+pz = 142.1157
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -2804.8135 -1514.7708 142.1157 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -2804.8135 -1514.7708 142.1157 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 5
+        ENDIF
+    ENDIF
+ENDIF
+IF found = 1
     px = -2807.282
     py = -1530.0153
     pz = 142.8001
     ang = 268.8192
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_06_p2:
-IF IS_POINT_ON_SCREEN -2807.4128 -1527.5131 143.8184 5.0
+IF found = 2
     px = -2807.4128
     py = -1527.5131
     pz = 143.8184
     ang = 269.7592
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_06_p3:
-IF IS_POINT_ON_SCREEN -2807.2031 -1521.8174 143.7891 5.0
+IF found = 3
     px = -2807.2031
     py = -1521.8174
     pz = 143.7891
     ang = 271.6393
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_06_p4:
-IF IS_POINT_ON_SCREEN -2814.1272 -1509.1133 142.3966 5.0
+IF found = 4
     px = -2814.1272
     py = -1509.1133
     pz = 142.3966
     ang = 0.9401
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_06_p5:
-IF IS_POINT_ON_SCREEN -2804.8135 -1514.7708 142.1157 5.0
+IF found = 5
     px = -2804.8135
     py = -1514.7708
     pz = 142.1157
     ang = 237.799
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-GOTO cv_area_07
+IF found = 0
+    GOTO cv_area_07
+ENDIF
+GOSUB cv_spawn
+RETURN                          // um corvo por quadro, no maximo
 
 // ---- AREA 07   gatilho (-1641.8, -2235.3, 34.5) raio 100   5 poleiro(s)
 cv_area_07:
 IF LOCATE_CHAR_ANY_MEANS_3D player -1641.8372 -2235.3174 34.4922 100.0 100.0 100.0 0
-    GOTO cv_area_07_p1
+    GOTO cv_area_07_sel
 ENDIF
 GOTO cv_area_08
-cv_area_07_p1:
-IF IS_POINT_ON_SCREEN -1641.9467 -2236.8245 34.4674 5.0
+cv_area_07_sel:
+GET_CHAR_COORDINATES player fx fy fz
+rnd = 0.0                       // melhor distancia ate agora
+found = 0                       // numero do poleiro escolhido
+// candidato 1: (-1641.9467, -2236.8245, 34.4674) CROW1.txt
+px = -1641.9467
+py = -2236.8245
+pz = 34.4674
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -1641.9467 -2236.8245 34.4674 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -1641.9467 -2236.8245 34.4674 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 1
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 2: (-1641.9543, -2239.8064, 34.4479) CROW2.txt
+px = -1641.9543
+py = -2239.8064
+pz = 34.4479
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -1641.9543 -2239.8064 34.4479 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -1641.9543 -2239.8064 34.4479 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 2
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 3: (-1644.7256, -2238.1343, 31.4423) CROW3.txt
+px = -1644.7256
+py = -2238.1343
+pz = 31.4423
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -1644.7256 -2238.1343 31.4423 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -1644.7256 -2238.1343 31.4423 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 3
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 4: (-1641.8873, -2243.5178, 34.4345) CROW4.txt
+px = -1641.8873
+py = -2243.5178
+pz = 34.4345
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -1641.8873 -2243.5178 34.4345 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -1641.8873 -2243.5178 34.4345 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 4
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 5: (-1642.4213, -2232.5295, 34.4266) CROW5.txt
+px = -1642.4213
+py = -2232.5295
+pz = 34.4266
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -1642.4213 -2232.5295 34.4266 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -1642.4213 -2232.5295 34.4266 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 5
+        ENDIF
+    ENDIF
+ENDIF
+IF found = 1
     px = -1641.9467
     py = -2236.8245
     pz = 34.4674
     ang = 92.0977
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_07_p2:
-IF IS_POINT_ON_SCREEN -1641.9543 -2239.8064 34.4479 5.0
+IF found = 2
     px = -1641.9543
     py = -2239.8064
     pz = 34.4479
     ang = 94.941
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_07_p3:
-IF IS_POINT_ON_SCREEN -1644.7256 -2238.1343 31.4423 5.0
+IF found = 3
     px = -1644.7256
     py = -2238.1343
     pz = 31.4423
     ang = 91.2044
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_07_p4:
-IF IS_POINT_ON_SCREEN -1641.8873 -2243.5178 34.4345 5.0
+IF found = 4
     px = -1641.8873
     py = -2243.5178
     pz = 34.4345
     ang = 152.5948
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_07_p5:
-IF IS_POINT_ON_SCREEN -1642.4213 -2232.5295 34.4266 5.0
+IF found = 5
     px = -1642.4213
     py = -2232.5295
     pz = 34.4266
     ang = 62.6673
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-GOTO cv_area_08
+IF found = 0
+    GOTO cv_area_08
+ENDIF
+GOSUB cv_spawn
+RETURN                          // um corvo por quadro, no maximo
 
 // ---- AREA 08   gatilho (-1840.3, -1672.4, 22.1) raio 100   4 poleiro(s)
 cv_area_08:
 IF LOCATE_CHAR_ANY_MEANS_3D player -1840.3258 -1672.4329 22.0988 100.0 100.0 100.0 0
-    GOTO cv_area_08_p1
+    GOTO cv_area_08_sel
 ENDIF
 GOTO cv_area_09
-cv_area_08_p1:
-IF IS_POINT_ON_SCREEN -1862.5463 -1694.3281 48.2144 5.0
+cv_area_08_sel:
+GET_CHAR_COORDINATES player fx fy fz
+rnd = 0.0                       // melhor distancia ate agora
+found = 0                       // numero do poleiro escolhido
+// candidato 1: (-1862.5463, -1694.3281, 48.2144) CROW2.txt
+px = -1862.5463
+py = -1694.3281
+pz = 48.2144
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -1862.5463 -1694.3281 48.2144 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -1862.5463 -1694.3281 48.2144 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 1
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 2: (-1926.8003, -1733.5320, 27.0156) CROW3.txt
+px = -1926.8003
+py = -1733.532
+pz = 27.0156
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -1926.8003 -1733.532 27.0156 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -1926.8003 -1733.532 27.0156 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 2
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 3: (-1878.5500, -1635.6218, 29.5635) CROW4.txt
+px = -1878.55
+py = -1635.6218
+pz = 29.5635
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -1878.55 -1635.6218 29.5635 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -1878.55 -1635.6218 29.5635 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 3
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 4: (-1849.9385, -1676.7151, 34.2680) CROW5.txt
+px = -1849.9385
+py = -1676.7151
+pz = 34.268
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -1849.9385 -1676.7151 34.268 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -1849.9385 -1676.7151 34.268 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 4
+        ENDIF
+    ENDIF
+ENDIF
+IF found = 1
     px = -1862.5463
     py = -1694.3281
     pz = 48.2144
     ang = 70.1355
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_08_p2:
-IF IS_POINT_ON_SCREEN -1926.8003 -1733.532 27.0156 5.0
+IF found = 2
     px = -1926.8003
     py = -1733.532
     pz = 27.0156
     ang = 201.4233
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_08_p3:
-IF IS_POINT_ON_SCREEN -1878.55 -1635.6218 29.5635 5.0
+IF found = 3
     px = -1878.55
     py = -1635.6218
     pz = 29.5635
     ang = 214.8969
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_08_p4:
-IF IS_POINT_ON_SCREEN -1849.9385 -1676.7151 34.268 5.0
+IF found = 4
     px = -1849.9385
     py = -1676.7151
     pz = 34.268
     ang = 91.1291
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-GOTO cv_area_09
+IF found = 0
+    GOTO cv_area_09
+ENDIF
+GOSUB cv_spawn
+RETURN                          // um corvo por quadro, no maximo
 
 // ---- AREA 09   gatilho (-545.6, -187.7, 78.4) raio 100   5 poleiro(s)
 cv_area_09:
 IF LOCATE_CHAR_ANY_MEANS_3D player -545.5967 -187.7389 78.4062 100.0 100.0 100.0 0
-    GOTO cv_area_09_p1
+    GOTO cv_area_09_sel
 ENDIF
 GOTO cv_area_10
-cv_area_09_p1:
-IF IS_POINT_ON_SCREEN -548.2428 -194.1817 82.5684 5.0
+cv_area_09_sel:
+GET_CHAR_COORDINATES player fx fy fz
+rnd = 0.0                       // melhor distancia ate agora
+found = 0                       // numero do poleiro escolhido
+// candidato 1: (-548.2428, -194.1817, 82.5684) CROW1.txt
+px = -548.2428
+py = -194.1817
+pz = 82.5684
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -548.2428 -194.1817 82.5684 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -548.2428 -194.1817 82.5684 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 1
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 2: (-549.7703, -183.5204, 82.0659) CROW2.txt
+px = -549.7703
+py = -183.5204
+pz = 82.0659
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -549.7703 -183.5204 82.0659 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -549.7703 -183.5204 82.0659 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 2
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 3: (-540.1224, -194.9465, 79.4888) CROW3.txt
+px = -540.1224
+py = -194.9465
+pz = 79.4888
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -540.1224 -194.9465 79.4888 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -540.1224 -194.9465 79.4888 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 3
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 4: (-529.4323, -181.4828, 83.6983) CROW4.txt
+px = -529.4323
+py = -181.4828
+pz = 83.6983
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -529.4323 -181.4828 83.6983 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -529.4323 -181.4828 83.6983 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 4
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 5: (-555.7335, -182.8492, 79.3574) CROW5.txt
+px = -555.7335
+py = -182.8492
+pz = 79.3574
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -555.7335 -182.8492 79.3574 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -555.7335 -182.8492 79.3574 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 5
+        ENDIF
+    ENDIF
+ENDIF
+IF found = 1
     px = -548.2428
     py = -194.1817
     pz = 82.5684
     ang = 6.58
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_09_p2:
-IF IS_POINT_ON_SCREEN -549.7703 -183.5204 82.0659 5.0
+IF found = 2
     px = -549.7703
     py = -183.5204
     pz = 82.0659
     ang = 181.1084
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_09_p3:
-IF IS_POINT_ON_SCREEN -540.1224 -194.9465 79.4888 5.0
+IF found = 3
     px = -540.1224
     py = -194.9465
     pz = 79.4888
     ang = 5.0367
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_09_p4:
-IF IS_POINT_ON_SCREEN -529.4323 -181.4828 83.6983 5.0
+IF found = 4
     px = -529.4323
     py = -181.4828
     pz = 83.6983
     ang = 212.1286
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_09_p5:
-IF IS_POINT_ON_SCREEN -555.7335 -182.8492 79.3574 5.0
+IF found = 5
     px = -555.7335
     py = -182.8492
     pz = 79.3574
     ang = 182.3618
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-GOTO cv_area_10
+IF found = 0
+    GOTO cv_area_10
+ENDIF
+GOSUB cv_spawn
+RETURN                          // um corvo por quadro, no maximo
 
 // ---- AREA 10   gatilho (-87.7, -23.4, 6.6) raio 100   5 poleiro(s)
 cv_area_10:
 IF LOCATE_CHAR_ANY_MEANS_3D player -87.6538 -23.3865 6.5942 100.0 100.0 100.0 0
-    GOTO cv_area_10_p1
+    GOTO cv_area_10_sel
 ENDIF
 GOTO cv_area_11
-cv_area_10_p1:
-IF IS_POINT_ON_SCREEN -59.6655 -26.5985 25.9801 5.0
+cv_area_10_sel:
+GET_CHAR_COORDINATES player fx fy fz
+rnd = 0.0                       // melhor distancia ate agora
+found = 0                       // numero do poleiro escolhido
+// candidato 1: (-59.6655, -26.5985, 25.9801) CROW1.txt
+px = -59.6655
+py = -26.5985
+pz = 25.9801
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -59.6655 -26.5985 25.9801 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -59.6655 -26.5985 25.9801 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 1
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 2: (-67.3350, 15.5959, 5.9605) CROW2.txt
+px = -67.335
+py = 15.5959
+pz = 5.9605
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -67.335 15.5959 5.9605 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -67.335 15.5959 5.9605 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 2
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 3: (-67.1478, 31.8082, 11.0083) CROW3.txt
+px = -67.1478
+py = 31.8082
+pz = 11.0083
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -67.1478 31.8082 11.0083 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -67.1478 31.8082 11.0083 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 3
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 4: (-90.1248, -10.4309, 12.2726) CROW4.txt
+px = -90.1248
+py = -10.4309
+pz = 12.2726
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -90.1248 -10.4309 12.2726 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -90.1248 -10.4309 12.2726 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 4
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 5: (-86.0666, -23.8079, 11.0097) CROW5.txt
+px = -86.0666
+py = -23.8079
+pz = 11.0097
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -86.0666 -23.8079 11.0097 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -86.0666 -23.8079 11.0097 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 5
+        ENDIF
+    ENDIF
+ENDIF
+IF found = 1
     px = -59.6655
     py = -26.5985
     pz = 25.9801
     ang = 61.0776
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_10_p2:
-IF IS_POINT_ON_SCREEN -67.335 15.5959 5.9605 5.0
+IF found = 2
     px = -67.335
     py = 15.5959
     pz = 5.9605
     ang = 196.1255
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_10_p3:
-IF IS_POINT_ON_SCREEN -67.1478 31.8082 11.0083 5.0
+IF found = 3
     px = -67.1478
     py = 31.8082
     pz = 11.0083
     ang = 161.9718
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_10_p4:
-IF IS_POINT_ON_SCREEN -90.1248 -10.4309 12.2726 5.0
+IF found = 4
     px = -90.1248
     py = -10.4309
     pz = 12.2726
     ang = 251.8992
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_10_p5:
-IF IS_POINT_ON_SCREEN -86.0666 -23.8079 11.0097 5.0
+IF found = 5
     px = -86.0666
     py = -23.8079
     pz = 11.0097
     ang = 344.8876
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-GOTO cv_area_11
+IF found = 0
+    GOTO cv_area_11
+ENDIF
+GOSUB cv_spawn
+RETURN                          // um corvo por quadro, no maximo
 
 // ---- AREA 11   gatilho (2240.3, -76.5, 26.5) raio 100   5 poleiro(s)
 cv_area_11:
 IF LOCATE_CHAR_ANY_MEANS_3D player 2240.3303 -76.4544 26.5146 100.0 100.0 100.0 0
-    GOTO cv_area_11_p1
+    GOTO cv_area_11_sel
 ENDIF
 GOTO cv_area_12
-cv_area_11_p1:
-IF IS_POINT_ON_SCREEN 2240.8752 -86.2229 27.8548 5.0
+cv_area_11_sel:
+GET_CHAR_COORDINATES player fx fy fz
+rnd = 0.0                       // melhor distancia ate agora
+found = 0                       // numero do poleiro escolhido
+// candidato 1: (2240.8752, -86.2229, 27.8548) CROW1.txt
+px = 2240.8752
+py = -86.2229
+pz = 27.8548
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D 2240.8752 -86.2229 27.8548 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN 2240.8752 -86.2229 27.8548 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 1
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 2: (2251.6724, -72.7849, 32.6133) CROW2.txt
+px = 2251.6724
+py = -72.7849
+pz = 32.6133
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D 2251.6724 -72.7849 32.6133 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN 2251.6724 -72.7849 32.6133 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 2
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 3: (2242.7910, -77.0144, 27.5148) CROW3.txt
+px = 2242.791
+py = -77.0144
+pz = 27.5148
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D 2242.791 -77.0144 27.5148 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN 2242.791 -77.0144 27.5148 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 3
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 4: (2243.1953, -66.9552, 27.7524) CROW4.txt
+px = 2243.1953
+py = -66.9552
+pz = 27.7524
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D 2243.1953 -66.9552 27.7524 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN 2243.1953 -66.9552 27.7524 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 4
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 5: (2253.7126, -58.7321, 29.7597) CROW5.txt
+px = 2253.7126
+py = -58.7321
+pz = 29.7597
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D 2253.7126 -58.7321 29.7597 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN 2253.7126 -58.7321 29.7597 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 5
+        ENDIF
+    ENDIF
+ENDIF
+IF found = 1
     px = 2240.8752
     py = -86.2229
     pz = 27.8548
     ang = 10.4856
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_11_p2:
-IF IS_POINT_ON_SCREEN 2251.6724 -72.7849 32.6133 5.0
+IF found = 2
     px = 2251.6724
     py = -72.7849
     pz = 32.6133
     ang = 90.2181
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_11_p3:
-IF IS_POINT_ON_SCREEN 2242.791 -77.0144 27.5148 5.0
+IF found = 3
     px = 2242.791
     py = -77.0144
     pz = 27.5148
     ang = 90.2417
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_11_p4:
-IF IS_POINT_ON_SCREEN 2243.1953 -66.9552 27.7524 5.0
+IF found = 4
     px = 2243.1953
     py = -66.9552
     pz = 27.7524
     ang = 89.6149
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_11_p5:
-IF IS_POINT_ON_SCREEN 2253.7126 -58.7321 29.7597 5.0
+IF found = 5
     px = 2253.7126
     py = -58.7321
     pz = 29.7597
     ang = 105.4502
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-GOTO cv_area_12
+IF found = 0
+    GOTO cv_area_12
+ENDIF
+GOSUB cv_spawn
+RETURN                          // um corvo por quadro, no maximo
 
 // ---- AREA 12   gatilho (891.0, -1103.2, 23.5) raio 100   5 poleiro(s)
 cv_area_12:
 IF LOCATE_CHAR_ANY_MEANS_3D player 891.0176 -1103.2471 23.5 100.0 100.0 100.0 0
-    GOTO cv_area_12_p1
+    GOTO cv_area_12_sel
 ENDIF
 GOTO cv_area_13
-cv_area_12_p1:
-IF IS_POINT_ON_SCREEN 897.6763 -1079.8077 26.0933 5.0
+cv_area_12_sel:
+GET_CHAR_COORDINATES player fx fy fz
+rnd = 0.0                       // melhor distancia ate agora
+found = 0                       // numero do poleiro escolhido
+// candidato 1: (897.6763, -1079.8077, 26.0933) CROW1.txt
+px = 897.6763
+py = -1079.8077
+pz = 26.0933
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D 897.6763 -1079.8077 26.0933 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN 897.6763 -1079.8077 26.0933 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 1
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 2: (893.5620, -1117.6823, 27.3605) CROW2.txt
+px = 893.562
+py = -1117.6823
+pz = 27.3605
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D 893.562 -1117.6823 27.3605 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN 893.562 -1117.6823 27.3605 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 2
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 3: (872.3456, -1086.2764, 26.1268) CROW3.txt
+px = 872.3456
+py = -1086.2764
+pz = 26.1268
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D 872.3456 -1086.2764 26.1268 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN 872.3456 -1086.2764 26.1268 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 3
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 4: (914.5113, -1108.8202, 26.8215) CROW4.txt
+px = 914.5113
+py = -1108.8202
+pz = 26.8215
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D 914.5113 -1108.8202 26.8215 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN 914.5113 -1108.8202 26.8215 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 4
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 5: (866.8079, -1112.1425, 25.6876) CROW5.txt
+px = 866.8079
+py = -1112.1425
+pz = 25.6876
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D 866.8079 -1112.1425 25.6876 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN 866.8079 -1112.1425 25.6876 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 5
+        ENDIF
+    ENDIF
+ENDIF
+IF found = 1
     px = 897.6763
     py = -1079.8077
     pz = 26.0933
     ang = 172.107
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_12_p2:
-IF IS_POINT_ON_SCREEN 893.562 -1117.6823 27.3605 5.0
+IF found = 2
     px = 893.562
     py = -1117.6823
     pz = 27.3605
     ang = 1.9887
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_12_p3:
-IF IS_POINT_ON_SCREEN 872.3456 -1086.2764 26.1268 5.0
+IF found = 3
     px = 872.3456
     py = -1086.2764
     pz = 26.1268
     ang = 210.175
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_12_p4:
-IF IS_POINT_ON_SCREEN 914.5113 -1108.8202 26.8215 5.0
+IF found = 4
     px = 914.5113
     py = -1108.8202
     pz = 26.8215
     ang = 338.3062
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_12_p5:
-IF IS_POINT_ON_SCREEN 866.8079 -1112.1425 25.6876 5.0
+IF found = 5
     px = 866.8079
     py = -1112.1425
     pz = 25.6876
     ang = 36.9002
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-GOTO cv_area_13
+IF found = 0
+    GOTO cv_area_13
+ENDIF
+GOSUB cv_spawn
+RETURN                          // um corvo por quadro, no maximo
 
 // ---- AREA 13   gatilho (-362.0, -1671.3, 27.5) raio 100   5 poleiro(s)
 cv_area_13:
 IF LOCATE_CHAR_ANY_MEANS_3D player -361.9819 -1671.2762 27.4701 100.0 100.0 100.0 0
-    GOTO cv_area_13_p1
+    GOTO cv_area_13_sel
 ENDIF
 GOTO cv_scan_end
-cv_area_13_p1:
-IF IS_POINT_ON_SCREEN -350.883 -1672.2433 27.4166 5.0
+cv_area_13_sel:
+GET_CHAR_COORDINATES player fx fy fz
+rnd = 0.0                       // melhor distancia ate agora
+found = 0                       // numero do poleiro escolhido
+// candidato 1: (-350.8830, -1672.2433, 27.4166) CROW1.txt
+px = -350.883
+py = -1672.2433
+pz = 27.4166
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -350.883 -1672.2433 27.4166 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -350.883 -1672.2433 27.4166 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 1
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 2: (-354.9198, -1662.9735, 28.1631) CROW2.txt
+px = -354.9198
+py = -1662.9735
+pz = 28.1631
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -354.9198 -1662.9735 28.1631 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -354.9198 -1662.9735 28.1631 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 2
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 3: (-371.0529, -1667.2954, 27.2982) CROW3.txt
+px = -371.0529
+py = -1667.2954
+pz = 27.2982
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -371.0529 -1667.2954 27.2982 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -371.0529 -1667.2954 27.2982 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 3
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 4: (-360.7076, -1675.0261, 28.7048) CROW4.txt
+px = -360.7076
+py = -1675.0261
+pz = 28.7048
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -360.7076 -1675.0261 28.7048 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -360.7076 -1675.0261 28.7048 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 4
+        ENDIF
+    ENDIF
+ENDIF
+// candidato 5: (-370.0551, -1678.3247, 26.5342) CROW5.txt
+px = -370.0551
+py = -1678.3247
+pz = 26.5342
+GOSUB cv_perch_busy
+IF st = 0
+    GET_DISTANCE_BETWEEN_COORDS_3D -370.0551 -1678.3247 26.5342 fx fy fz gz
+    IF gz >= SPAWN_MIN_DIST
+        IF IS_POINT_ON_SCREEN -370.0551 -1678.3247 26.5342 5.0
+            gz *= 2.0            // na tela: perde para um escondido
+        ENDIF
+        IF gz > rnd
+            rnd = gz
+            found = 5
+        ENDIF
+    ENDIF
+ENDIF
+IF found = 1
     px = -350.883
     py = -1672.2433
     pz = 27.4166
     ang = 151.9915
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_13_p2:
-IF IS_POINT_ON_SCREEN -354.9198 -1662.9735 28.1631 5.0
+IF found = 2
     px = -354.9198
     py = -1662.9735
     pz = 28.1631
     ang = 226.8789
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_13_p3:
-IF IS_POINT_ON_SCREEN -371.0529 -1667.2954 27.2982 5.0
+IF found = 3
     px = -371.0529
     py = -1667.2954
     pz = 27.2982
     ang = 155.1249
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_13_p4:
-IF IS_POINT_ON_SCREEN -360.7076 -1675.0261 28.7048 5.0
+IF found = 4
     px = -360.7076
     py = -1675.0261
     pz = 28.7048
     ang = 80.2375
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-cv_area_13_p5:
-IF IS_POINT_ON_SCREEN -370.0551 -1678.3247 26.5342 5.0
+IF found = 5
     px = -370.0551
     py = -1678.3247
     pz = 26.5342
     ang = 5.6634
-    GOSUB cv_spawn
-    RETURN
 ENDIF
-GOTO cv_scan_end
+IF found = 0
+    GOTO cv_scan_end
+ENDIF
+GOSUB cv_spawn
+RETURN                          // um corvo por quadro, no maximo
 
 cv_scan_end:
 RETURN

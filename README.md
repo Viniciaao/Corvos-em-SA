@@ -1,4 +1,4 @@
-# Corvos do GTA V — versão 2.2 (reescrita)
+# Corvos do GTA V — versão 2.3 (reescrita)
 
 Reescrita do mod **Corvos do GTA V** (original de *Dakurlz*): corvos do GTA V
 pousados pelo mapa de San Andreas que levantam voo quando o jogador (ou uma
@@ -7,12 +7,17 @@ ameaça) chega perto.
 Esta versão junta os cinco scripts originais (`CROW1` … `CROW5`) em **um único
 script**, corrige os erros de lógica do original e usa o áudio 3D do CLEO.
 
-* **2.2** — corrige o voo (o corvo subia e **ficava parado no ar**: com a colisão
-  desligada o motor do jogo não move o corpo), dois corvos no mesmo poleiro, o
-  corvo que "virava NPC" ao se afastar, o grasnado em laço, a demora de alguns
-  segundos para nascer depois de um *fast travel* e o nascimento na chuva /
-  tempestade de areia. Som, clima e tempos agora são configurados em
-  **`CLEO/CORVOS.ini`**. Ver a seção 6 do relatório.
+* **2.3** — voo corrigido de vez (com a colisão desligada o motor do jogo não
+  move o ped: o corvo ficava parado no ar batendo as asas); o corvo escolhe o
+  poleiro mais perto que esteja livre, **de preferência fora da câmera** e nunca
+  a menos de 25 m do jogador (antes ele só nascia se o ponto estivesse na tela,
+  ou seja, aparecia na frente do jogador e sempre no mesmo lugar); dois corvos
+  pousados ficam a pelo menos 4 m um do outro; o som só toca a menos de 30 m e o
+  grasnado ficou mais raro. Ver a seção 7 do relatório.
+* **2.2** — corrige o travamento do script esperando o modelo carregar (a demora
+  depois do *fast travel*), o corvo que "virava NPC" ao se afastar, o grasnado em
+  laço, a demora para nascer e o nascimento na chuva / tempestade de areia. Som,
+  clima e tempos são configurados em **`CLEO/CORVOS.ini`**. Ver a seção 6.
 * **2.1** — corrige o travamento relatado em jogo na procura de pedestres no
   poleiro (o `0AE1` devolve **-1** quando não acha ninguém; o teste antigo não
   pegava esse valor). Ver a seção 4 do relatório.

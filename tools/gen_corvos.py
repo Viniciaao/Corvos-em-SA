@@ -38,6 +38,19 @@ FILES = ['CROW%d.txt' % i for i in range(1, 6)]
 STRICT_AREAS = (5, 6, 7, 8, 9, 10, 11, 12)
 STRICT_DIST = 300.0
 
+# ---------------------------------------------------------------------------
+#  Ajustes manuais de poleiros (pedidos nos testes em jogo).
+#
+#  Chave = (area, numero do poleiro dentro da area, na ordem em que aparecem
+#  nos CROW1..CROW5). Valor = (x, y, z) novo.
+#
+#    area 1, poleiro 3: o CROW3 nascia a 1,66 m do CROW2 (dois corvos colados
+#    no chao); o jogador pediu para mover o segundo para o ponto abaixo.
+# ---------------------------------------------------------------------------
+PERCH_OVERRIDES = {
+    (1, 3): (-1466.996460, -1554.317017, 101.757782),
+}
+
 
 def parse_script(path):
     """Le um CROWn.txt e devolve {area: {in, not_in, onscreen, spawn, angle}}."""
@@ -98,21 +111,32 @@ def collect():
         cen = [round(statistics.mean(c[i] for c in ins), 4) for i in range(3)]
         rad = max(c[3] for c in ins)
         ex = next((s[n]['not_in'] for s in scripts.values() if n in s and s[n]['not_in']), None)
-        perches = []
+        brutos = []
         for name, s in scripts.items():
             a = s.get(n)
             if not a or not a['spawn']:
                 continue
-            p = {
+            brutos.append({
                 'src': name,
                 'x': a['spawn'][0], 'y': a['spawn'][1], 'z': a['spawn'][2],
                 'angle': a['angle'],
                 'vis_r': a['onscreen'][3] if a['onscreen'] else 15.0,
-            }
+            })
+        # ajustes manuais (o indice conta a ordem acima, antes dos filtros)
+        for (ar, pi), (ox, oy, oz) in sorted(PERCH_OVERRIDES.items()):
+            if ar != n or not 1 <= pi <= len(brutos):
+                continue
+            p = brutos[pi - 1]
+            print('  [ajuste] area %d poleiro %d: (%.4f, %.4f, %.4f) -> (%.4f, %.4f, %.4f)'
+                  % (n, pi, p['x'], p['y'], p['z'], ox, oy, oz))
+            p['x'], p['y'], p['z'] = ox, oy, oz
+            p['src'] = p['src'] + ' (ajustado)'
+        perches = []
+        for p in brutos:
             d2 = (p['x'] - cen[0]) ** 2 + (p['y'] - cen[1]) ** 2
             if n in STRICT_AREAS and d2 > STRICT_DIST ** 2:
                 print('  [aviso] %s area %d: poleiro a %.0f m do gatilho -> descartado'
-                      % (name, n, d2 ** 0.5))
+                      % (p['src'], n, d2 ** 0.5))
                 continue
             perches.append(p)
         seen, uniq = set(), []
@@ -127,7 +151,23 @@ def collect():
 
 
 def perch_table(areas):
-    """Tabela de areas/poleiros na sintaxe do gta3sc (vai para dentro de cv_scan)."""
+    """Tabela de areas/poleiros na sintaxe do gta3sc (vai para dentro de cv_scan).
+
+    Em cada area o script escolhe UM poleiro por quadro:
+
+      * o mais perto do jogador que esteja livre (nenhum corvo a menos de
+        PERCH_MIN_DIST dele) e a pelo menos SPAWN_MIN_DIST do jogador;
+      * um poleiro que esteja na tela leva uma penalidade de 2x na distancia,
+        entao o corvo nasce escondido sempre que houver opcao -- assim ele ja
+        aparece pousado, sem dar para ver o bicho surgindo do nada;
+      * a escolha do mais perto (em vez do primeiro da lista) faz os corvos se
+        espalharem pelos poleiros da area em vez de nascerem sempre no mesmo.
+
+    Variaveis usadas aqui (todas ja existentes no script): px/py/pz/ang = o
+    poleiro candidato, fx/fy/fz = posicao do jogador, gz = distancia do
+    candidato, rnd = melhor distancia ate agora, found = numero do escolhido,
+    st = resultado do cv_perch_busy.
+    """
     lines = []
     lines.append('// Tabela gerada por tools/gen_corvos.py a partir de CROW1..CROW5.')
     lines.append('// Nao edite a mao: mexa em tools/corvos_logic.sc.txt e rode o gerador.')
@@ -136,10 +176,12 @@ def perch_table(areas):
     for idx, a in enumerate(areas):
         nid = a['id']
         nxt = 'cv_area_%02d' % areas[idx + 1]['id'] if idx + 1 < len(areas) else 'cv_scan_end'
+        area_label = 'cv_area_%02d' % nid
         lines.append('')
         lines.append('// ---- AREA %02d   gatilho (%.1f, %.1f, %.1f) raio %.0f   %d poleiro(s)'
-                     % (nid, a['center'][0], a['center'][1], a['center'][2], a['radius'], len(a['perches'])))
-        lines.append('cv_area_%02d:' % nid)
+                     % (nid, a['center'][0], a['center'][1], a['center'][2], a['radius'],
+                        len(a['perches'])))
+        lines.append('%s:' % area_label)
         cen, rad = a['center'], a['radius']
         lines.append('IF LOCATE_CHAR_ANY_MEANS_3D player %s %s %s %s %s %s 0'
                      % (fmt(cen[0]), fmt(cen[1]), fmt(cen[2]), fmt(rad), fmt(rad), fmt(rad)))
@@ -147,22 +189,46 @@ def perch_table(areas):
             e = a['exclude']
             lines.append('AND NOT LOCATE_CHAR_ANY_MEANS_3D player %s %s %s %s %s %s 0'
                          % (fmt(e[0]), fmt(e[1]), fmt(e[2]), fmt(e[3]), fmt(e[3]), fmt(e[3])))
-        lines.append('    GOTO cv_area_%02d_p1' % nid)
+        lines.append('    GOTO %s_sel' % area_label)
         lines.append('ENDIF')
         lines.append('GOTO %s' % nxt)
+        lines.append('%s_sel:' % area_label)
+        lines.append('GET_CHAR_COORDINATES player fx fy fz')
+        lines.append('rnd = 0.0                       // melhor distancia ate agora')
+        lines.append('found = 0                       // numero do poleiro escolhido')
         for j, p in enumerate(a['perches'], start=1):
-            label = 'cv_area_%02d_p%d' % (nid, j)
-            lines.append('%s:' % label)
-            lines.append('IF IS_POINT_ON_SCREEN %s %s %s %s'
+            lines.append('// candidato %d: (%.4f, %.4f, %.4f) %s'
+                         % (j, p['x'], p['y'], p['z'], p['src']))
+            lines.append('px = %s' % fmt(p['x']))
+            lines.append('py = %s' % fmt(p['y']))
+            lines.append('pz = %s' % fmt(p['z']))
+            lines.append('GOSUB cv_perch_busy')          # st = 1: ja tem corvo por perto
+            lines.append('IF st = 0')
+            lines.append('    GET_DISTANCE_BETWEEN_COORDS_3D %s %s %s fx fy fz gz'
+                         % (fmt(p['x']), fmt(p['y']), fmt(p['z'])))
+            lines.append('    IF gz >= SPAWN_MIN_DIST')
+            lines.append('        IF IS_POINT_ON_SCREEN %s %s %s %s'
                          % (fmt(p['x']), fmt(p['y']), fmt(p['z']), fmt(p['vis_r'])))
+            lines.append('            gz *= 2.0            // na tela: perde para um escondido')
+            lines.append('        ENDIF')
+            lines.append('        IF gz > rnd')
+            lines.append('            rnd = gz')
+            lines.append('            found = %d' % j)
+            lines.append('        ENDIF')
+            lines.append('    ENDIF')
+            lines.append('ENDIF')
+        for j, p in enumerate(a['perches'], start=1):
+            lines.append('IF found = %d' % j)
             lines.append('    px = %s' % fmt(p['x']))
             lines.append('    py = %s' % fmt(p['y']))
             lines.append('    pz = %s' % fmt(p['z']))
             lines.append('    ang = %s' % fmt(p['angle']))
-            lines.append('    GOSUB cv_spawn')
-            lines.append('    RETURN')           # um corvo por quadro, no maximo
             lines.append('ENDIF')
-        lines.append('GOTO %s' % nxt)
+        lines.append('IF found = 0')
+        lines.append('    GOTO %s' % nxt)
+        lines.append('ENDIF')
+        lines.append('GOSUB cv_spawn')
+        lines.append('RETURN                          // um corvo por quadro, no maximo')
     lines.append('')
     return '\n'.join(lines)
 

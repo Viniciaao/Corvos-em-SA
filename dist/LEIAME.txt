@@ -1,10 +1,10 @@
 ===========================================================================
- CORVOS DO GTA V  -  versao 2.2 (reescrita)
+ CORVOS DO GTA V  -  versao 2.3 (reescrita)
 ===========================================================================
 
  Mod original: Dakurlz
  Creditos originais: JuniorDjjr (blog), MixMods, BrModStudio
- Versao 2.2: um script unico (CORVOS.cs) no lugar dos cinco antigos
+ Versao 2.3: um script unico (CORVOS.cs) no lugar dos cinco antigos
            (CROW1.cs ... CROW5.cs), com os erros de logica corrigidos e um
            arquivo de configuracao (CLEO/CORVOS.ini).
 
@@ -15,17 +15,20 @@
    2.1 - corrige um travamento durante a procura de pedestres no poleiro
          (o opcode que procura alguem por perto devolve -1 quando nao acha
          ninguem; o teste antigo nao pegava esse -1).
-   2.2 - corrige o voo (o corvo levantava voo e ficava parado no ar batendo
-         as asas: com a colisao desligada o jogo nao move o corpo);
-         dois corvos nao nascem mais no mesmo ponto;
-         o corvo que fica longe do jogador agora desaparece em vez de virar
-         um pedestre qualquer andando pelo mapa;
-         grasnado nao fica mais repetindo sem parar e o volume dos sons pode
-         ser ajustado;
-         o corvo nao demora mais alguns segundos para nascer depois de um
-         fast travel (o script esperava o modelo carregar e travava tudo);
-         o corvo nao nasce mais na chuva nem na tempestade de areia;
-         configuracao no CLEO/CORVOS.ini.
+   2.2 - corrige o travamento do script esperando o modelo carregar (era a
+         demora depois do fast travel); o corvo que fica longe do jogador
+         desaparece em vez de virar um pedestre qualquer; grasnado nao fica
+         mais repetindo sem parar; volume dos sons; o corvo nao nasce na
+         chuva nem na tempestade de areia; configuracao no CLEO/CORVOS.ini.
+   2.3 - corrige o voo de vez (com a colisao desligada o GTA nao move o ped:
+         o corvo ficava parado no ar batendo as asas);
+         o corvo nao nasce mais na frente do jogador nem sempre no mesmo
+         ponto: ele escolhe o poleiro mais perto que esteja livre, de
+         preferencia fora da camera, e nunca a menos de 25 m do jogador;
+         dois corvos pousados ficam a pelo menos 4 m um do outro;
+         o som so toca a menos de 30 m do jogador, o grasnado ficou mais raro
+         e os volumes cairam (tudo ajustavel no INI);
+         esperas menores: 0,25 s entre um corvo e outro e 3 s para renascer.
 
  O que o mod faz
  ---------------
@@ -46,7 +49,8 @@
  na cena ate o jogador se afastar 100 m (ai ele desaparece - se o jogador
  nao estiver olhando, o corpo e apagado na hora).
  O som e 3D: asas batendo no voo (em laco), grasnado no poleiro (toca uma
- vez, de vez em quando), presos ao corpo do corvo (CLEO 0AC1/0AC2/0AC4).
+ vez, de vez em quando), presos ao corpo do corvo (CLEO 0AC1/0AC2/0AC4) e
+ so audiveis a menos de 30 m.
 
  Requisitos
  ----------
@@ -107,8 +111,15 @@
       tempo_para_renascer ............ espera para nascer outro depois que um
                                        corvo saiu (ms)
 
- "numero_de_corvos" e as duas opcoes de clima sao lidas quando o jogo
- carrega a partida; som, grasnado e tempos sao lidos na hora.
+ O script le a configuracao quando a partida carrega: depois de mexer no
+ INI, reinicie o jogo.
+
+ O que NAO esta no INI (e' ajustado no fonte, precisa recompilar):
+      o corvo nasce a mais de 25 m do jogador;
+      dois corvos pousados ficam a pelo menos 4 m um do outro;
+      o som so toca a menos de 30 m;
+      o corvo "esquece" o jogador a mais de 100 m;
+      vida, velocidade de voo, altitude de cruzeiro e distancias de alerta.
 
  Ajustes no fonte
  ----------------

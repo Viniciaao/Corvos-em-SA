@@ -4,7 +4,7 @@ Extraido automaticamente dos cinco scripts originais (CROW1..CROW5).
 
 | area | gatilho (x, y, z) | raio | exclusao | poleiros | origens |
 |---|---|---|---|---|---|
-| 1 | (-1464.8, -1558.3, 101.8) | 100 | (-1465.1, -1551.7, 101.8) r10 | 5 | CROW1.txt, CROW2.txt, CROW3.txt, CROW4.txt, CROW5.txt |
+| 1 | (-1464.8, -1558.3, 101.8) | 100 | (-1465.1, -1551.7, 101.8) r10 | 5 | CROW1.txt, CROW2.txt, CROW3.txt (ajustado), CROW4.txt, CROW5.txt |
 | 2 | (-1055.8, -1184.1, 129.2) | 100 | (-1060.1, -1182.5, 129.2) r30 | 5 | CROW1.txt, CROW2.txt, CROW3.txt, CROW4.txt, CROW5.txt |
 | 3 | (-383.5, -1436.5, 32.3) | 100 | (-383.5, -1436.5, 32.3) r30 | 5 | CROW1.txt, CROW2.txt, CROW3.txt, CROW4.txt, CROW5.txt |
 | 4 | (-352.4, -1047.3, 62.3) | 100 | (-352.4, -1047.3, 62.3) r30 | 5 | CROW1.txt, CROW2.txt, CROW3.txt, CROW4.txt, CROW5.txt |
