@@ -20,11 +20,6 @@
          desaparece em vez de virar um pedestre qualquer; grasnado nao fica
          mais repetindo sem parar; volume dos sons; o corvo nao nasce na
          chuva nem na tempestade de areia; configuracao no CLEO/CORVOS.ini.
-   2.4 - os corvos nao reaparecem mais logo depois de irem embora: depois que
-         os corvos de um lugar vao embora, nenhum outro nasce ate o jogador se
-         afastar 200 m dali (o original esperava 10 s e comecava tudo de novo,
-         e o corvo nascia nas costas do jogador). A area de ativacao passou de
-         100 m para 200 m.
    2.3 - corrige o voo de vez (com a colisao desligada o GTA nao move o ped:
          o corvo ficava parado no ar batendo as asas);
          o corvo nao nasce mais na frente do jogador nem sempre no mesmo
@@ -34,13 +29,19 @@
          o som so toca a menos de 30 m do jogador, o grasnado ficou mais raro
          e os volumes cairam (tudo ajustavel no INI);
          esperas menores: 0,25 s entre um corvo e outro e 3 s para renascer.
+   2.4 - os corvos nao reaparecem mais logo depois de irem embora: depois que
+         os corvos de um lugar vao embora, nenhum outro nasce ate o jogador se
+         afastar 200 m dali (o original esperava 10 s e comecava tudo de novo,
+         e o corvo nascia nas costas do jogador). A area de ativacao passou de
+         100 m para 200 m.
 
  O que o mod faz
  ---------------
  Coloca corvos do GTA V pousados em 64 pontos do mapa (telhados, postes,
  muros...), nas mesmas 13 regioes do mod original. Quando o jogador chega
- perto, um corvo aparece no poleiro que estiver na tela. Ele fica pousado
- grasnando e levanta voo se:
+ perto de uma dessas regioes, um corvo aparece num dos poleiros dela -
+ de preferencia num que esteja fora da camera, para nao ver o bicho
+ surgindo do nada. Ele fica pousado grasnando e levanta voo se:
     - o jogador chega a menos de 10 m
     - o jogador atira nele
     - ele cai na agua
