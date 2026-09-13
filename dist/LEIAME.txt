@@ -1,14 +1,31 @@
 ===========================================================================
- CORVOS DO GTA V  -  versao 2.1 (reescrita)
+ CORVOS DO GTA V  -  versao 2.2 (reescrita)
 ===========================================================================
 
  Mod original: Dakurlz
  Creditos originais: JuniorDjjr (blog), MixMods, BrModStudio
- Versao 2.1: um script unico (CORVOS.cs) no lugar dos cinco antigos
-           (CROW1.cs ... CROW5.cs), com os erros de logica corrigidos.
-           2.1 = corrige um crash durante a procura de pedestres no poleiro
-           (o opcode que procura alguem por perto devolve -1 quando nao
-           acha ninguem; o teste antigo nao pegava esse -1).
+ Versao 2.2: um script unico (CORVOS.cs) no lugar dos cinco antigos
+           (CROW1.cs ... CROW5.cs), com os erros de logica corrigidos e um
+           arquivo de configuracao (CLEO/CORVOS.ini).
+
+ Novidades / correcoes desta versao
+ ----------------------------------
+   2.0 - um script so no lugar dos cinco; erros de logica do original
+         corrigidos; audio 3D.
+   2.1 - corrige um travamento durante a procura de pedestres no poleiro
+         (o opcode que procura alguem por perto devolve -1 quando nao acha
+         ninguem; o teste antigo nao pegava esse -1).
+   2.2 - corrige o voo (o corvo levantava voo e ficava parado no ar batendo
+         as asas: com a colisao desligada o jogo nao move o corpo);
+         dois corvos nao nascem mais no mesmo ponto;
+         o corvo que fica longe do jogador agora desaparece em vez de virar
+         um pedestre qualquer andando pelo mapa;
+         grasnado nao fica mais repetindo sem parar e o volume dos sons pode
+         ser ajustado;
+         o corvo nao demora mais alguns segundos para nascer depois de um
+         fast travel (o script esperava o modelo carregar e travava tudo);
+         o corvo nao nasce mais na chuva nem na tempestade de areia;
+         configuracao no CLEO/CORVOS.ini.
 
  O que o mod faz
  ---------------
@@ -26,9 +43,10 @@
  No ar ele sobe ate uns 25 m, desvia de paredes olhando 12 m a frente,
  plana para pousar e grasna de novo ao pousar. Se for morto, cai
  (DIE_fly), toca a animacao de morte no chao (DIE_raven) e o corpo fica
- na cena ate o jogador se afastar 100 m.
- O som e 3D: asas batendo no voo, grasnado no poleiro, presos ao corpo
- do corvo (CLEO 0AC1/0AC2/0AC4).
+ na cena ate o jogador se afastar 100 m (ai ele desaparece - se o jogador
+ nao estiver olhando, o corpo e apagado na hora).
+ O som e 3D: asas batendo no voo (em laco), grasnado no poleiro (toca uma
+ vez, de vez em quando), presos ao corpo do corvo (CLEO 0AC1/0AC2/0AC4).
 
  Requisitos
  ----------
@@ -38,13 +56,14 @@
 
  Instalacao
  ----------
- 1) Script e sons
+ 1) Script, configuracao e sons
       copie a pasta CLEO deste pacote para a pasta do GTA San Andreas
       (junto do gta_sa.exe), ficando assim:
 
           GTA San Andreas/
             CLEO/
               CORVOS.cs            <- o script novo
+              CORVOS.ini           <- configuracao (pode editar)
               sounds/
                 CROW.mp3
                 WINGS.mp3
@@ -71,19 +90,38 @@
  Se aparecer a mensagem vermelha "CROW01.dff e raven.ifp nao estao no
  gta3.img", o passo 2 nao foi feito (ou o CLEO nao conseguiu carregar).
 
- Ajustes rapidos
- ---------------
- Tudo que da para mexer esta no comeco do fonte src/CORVOS.sc, na parte
- CONFIGURACAO: vida do corvo, quantos corvos ao mesmo tempo, tempo entre
- aparicoes, tempo de espera depois que um corvo morre, velocidade e
- altitude de voo, distancias de alerta, etc.
+ Configuracao (CLEO/CORVOS.ini)
+ ------------------------------
+ O comportamento do mod se ajusta pelo arquivo CLEO/CORVOS.ini - nao
+ precisa recompilar nada. Se o arquivo nao existir, o script cria um
+ igual ao do pacote na primeira vez que o jogo carrega.
+
+      numero_de_corvos ............... quantos corvos ao mesmo tempo (1 a 5)
+      nascer_na_chuva ................ 1 = pode nascer com chuva
+      nascer_na_tempestade_de_areia .. 1 = pode nascer na tempestade
+      grasnado_a_cada ................ segundos entre grasnados (0 = nunca)
+      volume_grasnado ................ 0.0 a 1.0
+      volume_asas .................... 0.0 a 1.0
+      desligar_som ................... 1 = deixa o mod mudo
+      tempo_entre_corvos ............. espera entre um corvo e o proximo (ms)
+      tempo_para_renascer ............ espera para nascer outro depois que um
+                                       corvo saiu (ms)
+
+ "numero_de_corvos" e as duas opcoes de clima sao lidas quando o jogo
+ carrega a partida; som, grasnado e tempos sao lidos na hora.
+
+ Ajustes no fonte
+ ----------------
+ O resto (distancias de alerta, altitude de voo, velocidade, etc.) esta no
+ comeco do fonte src/CORVOS.sc, na parte CONFIGURACAO.
 
  Para mudar e recompilar:
       sh tools/build.sh          (gera build/CLEO/CORVOS.cs)
       sh tools/package.sh        (remonta a pasta dist/)
 
- O compilador (gta3sc) e baixado e compilado na primeira vez; depois disso
- o script usa o binario guardado em tools/.gta3sc/build/gta3sc.
+ O compilador (gta3sc) e baixado e compilado na primeira vez; depois o
+ script reaproveita o binario guardado em ~/.cache/gta3sc (mude com a
+ variavel GTA3SC_CACHE).
 
  Creditos
  --------

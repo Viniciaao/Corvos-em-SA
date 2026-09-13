@@ -138,8 +138,9 @@ Não é possível rodar o GTA neste ambiente, então a verificação foi estáti
 foi até o byte:
 
 1. **Compilação**: `gta3sc` (compilador de GTA3script, C++17, compilado aqui a
-   partir do fonte) sem erros nem avisos. O `.cs` gerado tem 8.768 bytes / 947
-   instruções (contra ~15 KB de cada script original).
+   partir do fonte) sem erros nem avisos. O `.cs` da 2.2 tem 10.624 bytes /
+   1.131 instruções (a 2.1 tinha 8.882 bytes, contra ~15 KB de cada script
+   original).
 2. **Formato do arquivo**: o CLEO 4 lê o `.cs` inteiro como corpo do script
    (`CCustomScript::CCustomScript`, `CScriptEngine.cpp`) — e é exatamente assim
    que o arquivo sai do compilador: sem cabeçalho, começando direto no primeiro
@@ -167,8 +168,11 @@ foi até o byte:
    `CKeyGen::GetUppercaseKey`). A versão 2 usa os nomes exatos do arquivo.
 5. **Opcodes**: todos os usados existem no jogo/CLEO com a mesma ordem e tipos de
    parâmetros da biblioteca do Sanny Builder (`sblib/sa/sa.json`) e do SASCM.INI
-   moderno; os opcodes de áudio (0AC0/0AC1/0AC4) foram conferidos no fonte do
-   CLEO 4 (`CCustomOpcodeSystem.cpp`, L1885+), que é quem os implementa.
+   moderno; os opcodes de áudio (0AC0/0AC1/0AC4 e o volume 0ABB/0ABC) foram
+   conferidos no fonte do CLEO 4 (`CCustomOpcodeSystem.cpp`, L1885+), que é quem
+   os implementa. Para a 2.2 foram validados num script de teste compilado e
+   desmontado (`0AF0`/`0AF2` ler INI, `0AF1`/`0AF3` escrever INI, `0AAB`
+   arquivo existe, `0A8D` ler memória) antes de entrarem no `CORVOS.sc`.
 
 6. **Confronto com o jogo de verdade**: o log do SCRLog (da primeira versão
    jogada) foi usado como gabarito — os offsets, os saltos e os opcodes relatados
@@ -181,7 +185,84 @@ script compila e o bytecode foi conferido, mas o teste final é jogar.
 
 ---
 
-## 6. Como recompilar
+## 6. Segunda rodada de testes em jogo (v2.2)
+
+Depois da 2.1 o travamento sumiu, mas o teste em jogo levantou sete pontos. O que
+era defeito de verdade foi corrigido; o que era comportamento herdado do mod
+original (e o jogador não gostava) virou opção no arquivo de configuração.
+
+**1. Voo sem sair do lugar (o mais grave).** O corvo levantava voo, batia as asas
+e **ficava parado no ar**. Causa confirmada no código do motor
+(`gta-reversed`, `CPhysical::ProcessCollision`): aplicar velocidade, gravidade e
+atrito está **dentro** do bloco `if (GetUsesCollision())` — com a colisão
+desligada (`0619 FALSE`) o jogo não move o corpo, ele só roda a animação. O
+`SET_CHAR_VELOCITY` continuava sendo chamado todo quadro, mas não tinha efeito
+nenhum. A 2.1 desligava a colisão na decolagem e **nunca ligava de volta**; agora
+a colisão passa a ficar **ligada durante todo o voo** (`cv_takeoff` não desliga
+mais e `cv_fly` reforça com `0619 TRUE`, no mesmo espírito do original, que
+religava a colisão ao entrar em cruzeiro), com o Z igual ao do original: subida
+com `CLIMB_SPEED` constante, cruzeiro com `dz` ampliado e pouso com `-3.0`.
+
+**2. Dois corvos no mesmo poleiro (parecia um corvo só).** Vários pontos do mod
+original ficam a menos de 2 m um do outro (o menor espaçamento é **1,00 m**, na
+área 5; na área 1, 1,66 m) — são "poleiros" diferentes do mesmo telhado/muro. Com
+um script só, os dois podiam nascer no mesmo instante e ficar um dentro do outro.
+Agora o `cv_spawn` chama `cv_perch_busy`, que percorre as vagas e **recusa o
+nascimento se já houver um corvo a menos de 3 m** daquele ponto; além disso o
+`cv_scan` tenta **no máximo um nascimento por quadro** (antes, um quadro podia
+soltar vários corvos de uma vez). Os 64 pontos continuam exatamente como no
+original.
+
+**3. Corvo que "virava NPC" quando o jogador se afastava.** Ao passar de 100 m, a
+2.1 soltava o corpo com `MARK_CHAR_AS_NO_LONGER_NEEDED`: o corvo continuava
+andando pelo mapa como pedestre comum. Agora o corpo é **apagado**
+(`009B DELETE_CHAR`) — mas só se ele estiver **fora da tela** (`00C2`); se o
+jogador estiver olhando (câmera de noclip, por exemplo), o corvo simplesmente
+continua vivo até sair de vista.
+
+**4. Grasnado repetindo sem parar + som alto.** O grasnado era carregado com
+`SET_AUDIO_STREAM_LOOPED TRUE`, ou seja, ficava repetindo de fundo enquanto o
+corvo estava pousado. Agora asas (`WINGS.mp3`) continuam em laço — é o bater de
+asas — e o grasnado (`CROW.mp3`) toca **uma vez**, com um grasnado extra de vez
+em quando (`grasnado_a_cada`). Os dois volumes passaram a ser ajustados com
+`0ABC SET_AUDIO_STREAM_VOLUME` a partir do INI (`volume_asas`, `volume_grasnado`,
+de 0.0 a 1.0) e existe a chave `desligar_som` para mutar o mod inteiro.
+
+**5. Demora de vários segundos para o corvo aparecer (fast travel).** O
+`cv_keep_loaded` rodava a cada quadro e, quando o jogo descarregava o modelo ou a
+animação, ele **parava o script inteiro** num laço de espera (`WAIT 0` até 15 s).
+Durante essa espera ninguém nascia — daí a demora sentida depois de um fast
+travel. Agora ele só **pede** o modelo/animação de volta (`023C`/`04ED`) e segue
+rodando; o `cv_spawn` apenas espera o modelo **já carregado** para criar o corpo,
+tentando de novo no quadro seguinte, sem travar nada.
+
+**6. Corvo nascendo na chuva / na tempestade de areia.** O original nascia em
+qualquer clima. Agora o `cv_scan` lê o clima do jogo pela memória
+(`0A8D READ_MEMORY` em `CWeather::Rain` `0xC81324` e `CWeather::NewWeatherType`
+`0xC8131C`) e **não deixa nascer** com chuva nem na tempestade de areia (clima 19)
+— as duas coisas são opção no INI (`nascer_na_chuva`,
+`nascer_na_tempestade_de_areia`). É o único ponto do script que depende dos
+endereços da **versão 1.0 do GTA SA**; se os endereços não existirem na sua
+versão, o máximo que acontece é o corvo nascer como antes.
+
+**7. Corvo "andando no chão" e companheiros aparecendo depois.** Este é
+provavelmente o **mesmo defeito do item 1** visto de perto: com a colisão
+desligada, o corvo alertado ficava no poleiro baixo batendo as asas, sem subir —
+o que em pé, no chão, parece um corvo andando/pulando. Com o voo corrigido o
+comportamento esperado é: o corvo alertado sobe e vai embora, e os outros
+poleiros aparecem conforme o jogador olha para eles (um por quadro, item 2).
+Se depois da 2.2 o corvo ainda andar no chão, aí é outro defeito — precisa de
+vídeo para localizar.
+
+**Arquivo de configuração.** Tudo o que se costuma querer mudar saiu do fonte e
+foi para **`CLEO/CORVOS.ini`** (`0AF0`/`0AF2` para ler, `0AF1`/`0AF3` para
+escrever): número de corvos, chuva/tempestade, tempos de nascimento, grasnado e
+volumes. Se o arquivo não existir, o script **cria um com os valores padrão** na
+primeira vez que a partida carrega — o INI que vai no pacote é o mesmo arquivo,
+só com os comentários explicando cada chave.
+
+
+## 7. Como recompilar
 
 ```sh
 sh tools/build.sh      # gera src/CORVOS.sc e compila para build/CLEO/CORVOS.cs
@@ -199,6 +280,7 @@ tools/corvos_logic.sc.txt  a lógica escrita à mão (o gerador injeta a tabela)
 tools/gen_corvos.py        extrai áreas/poleiros dos CROW1..5 e monta o .sc
 tools/build.sh             compila (baixa o gta3sc se preciso)
 tools/package.sh           monta o dist/
+tools/CORVOS.ini           configuração que vai para o pacote (CLEO/CORVOS.ini)
 tools/scm_disasm.py        desmontador usado na conferência do .cs
 analysis/spots.csv|.md     tabela de áreas e poleiros (conferência)
 dist/                      pacote final (CLEO + gta3img + LEIAME)
@@ -206,7 +288,7 @@ dist/                      pacote final (CLEO + gta3img + LEIAME)
 
 ---
 
-## 7. Créditos
+## 8. Créditos
 
 * **Dakurlz** — mod original e scripts `CROW1` … `CROW5`.
 * **JuniorDjjr**, **MixMods**, **BrModStudio** — divulgação/ferramentas citadas no

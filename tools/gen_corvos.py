@@ -12,10 +12,12 @@ Monta o script novo (src/CORVOS.sc) a partir de duas partes:
 Tambem gera os relatorios de apoio:
   analysis/spots.csv   - a tabela em CSV (para planilha / conferencia)
   analysis/spots.md    - a mesma tabela em Markdown
+  build/CLEO/CORVOS.ini- arquivo de configuracao que vai junto no pacote
 """
 import csv
 import os
 import re
+import shutil
 import statistics
 import sys
 
@@ -25,6 +27,8 @@ LOGIC = os.path.join(ROOT, 'tools', 'corvos_logic.sc.txt')
 OUT_SC = os.path.join(ROOT, 'src', 'CORVOS.sc')
 OUT_CSV = os.path.join(ROOT, 'analysis', 'spots.csv')
 OUT_MD = os.path.join(ROOT, 'analysis', 'spots.md')
+INI = os.path.join(ROOT, 'tools', 'CORVOS.ini')
+OUT_INI = os.path.join(ROOT, 'build', 'CLEO', 'CORVOS.ini')
 
 NUM = r'-?\d+\.?\d*'
 FILES = ['CROW%d.txt' % i for i in range(1, 6)]
@@ -156,7 +160,7 @@ def perch_table(areas):
             lines.append('    pz = %s' % fmt(p['z']))
             lines.append('    ang = %s' % fmt(p['angle']))
             lines.append('    GOSUB cv_spawn')
-            lines.append('    RETURN')
+            lines.append('    RETURN')           # um corvo por quadro, no maximo
             lines.append('ENDIF')
         lines.append('GOTO %s' % nxt)
     lines.append('')
@@ -179,6 +183,11 @@ def main():
                 w.writerow([a['id'], fmt(a['center'][0]), fmt(a['center'][1]), fmt(a['center'][2]), fmt(a['radius'])]
                            + [fmt(v) if v != '' else '' for v in ex]
                            + [fmt(p['x']), fmt(p['y']), fmt(p['z']), fmt(p['angle']), fmt(p['vis_r']), p['src']])
+
+    # o arquivo de configuracao vai junto no pacote (dist/CLEO/CORVOS.ini);
+    # se ele nao existir no jogo, o script cria um igualzinho na primeira vez
+    os.makedirs(os.path.dirname(OUT_INI), exist_ok=True)
+    shutil.copyfile(INI, OUT_INI)
 
     logic = open(LOGIC, encoding='utf-8').read()
     if '{{PERCH_TABLE}}' not in logic:
@@ -204,6 +213,7 @@ def main():
     print('gerado: %s (%d linhas)' % (OUT_SC, len(script.splitlines())))
     print('gerado: %s' % OUT_CSV)
     print('gerado: %s' % OUT_MD)
+    print('gerado: %s' % OUT_INI)
     print('areas: %d   poleiros: %d' % (len(areas), sum(len(a['perches']) for a in areas)))
 
 

@@ -1,5 +1,5 @@
 // ===========================================================================
-//  CORVOS DO GTA V  -  versao 2 (reescrito, corrigido e otimizado)
+//  CORVOS DO GTA V  -  versao 2.2 (reescrito, corrigido e otimizado)
 //
 //  Mod original: Dakurlz
 //  Creditos originais: JuniorDjjr (blog), MixMods, BrModStudio
@@ -16,8 +16,21 @@
 //    - CLEO 4.3 ou superior. Os opcodes de audio 3D (0AC1/0AC4) e as esperas
 //      por stream de audio sao do CLEO, nao do jogo.
 //
+//  CONFIGURACAO: tudo o que se costuma ajustar esta no arquivo
+//                CLEO/CORVOS.ini (numero de corvos, som, clima, tempos).
+//                O script cria o arquivo com os valores padrao se ele nao existir.
+//
 //  COMO COMPILAR:  sh tools/build.sh        (usa o compilador gta3sc)
 //                  saida: build/CORVOS.cs
+//
+//  HISTORICO
+//   2.2 - voo corrigido (colisao volta a ficar ligada: desligada o ped nao se
+//         move), poleiros nao repetem (corvos nao nascem um dentro do outro),
+//         corvo longe do jogador desaparece em vez de virar npc, um corvo por
+//         quadro, grasnado sem loop + volume, clima (chuva/tempestade) e
+//         configuracao no CLEO/CORVOS.ini
+//   2.1 - corrigido o crash da busca de pedestre (0AE1 devolve -1)
+//   2.0 - um script no lugar dos cinco originais
 // ===========================================================================
 
 
@@ -31,8 +44,9 @@ CONST_INT   CROW_HEALTH           50       // vida do corvo (a 0223 usa inteiro)
 
 CONST_INT   STATE_FREE            0
 CONST_INT   STATE_PERCH           1
-CONST_INT   STATE_FLY             2
-CONST_INT   STATE_DIE             3
+CONST_INT   STATE_CLIMB           2   // subindo (so vira cruzeiro depois)
+CONST_INT   STATE_FLY             3   // cruzeiro (altura ja conquistada)
+CONST_INT   STATE_DIE             4
 
 CONST_INT   AUDIO_STOP            0
 CONST_INT   AUDIO_PLAY            1
@@ -42,13 +56,15 @@ CONST_INT   RESPAWN_WAIT          10000    // ms de espera depois que um corvo s
 CONST_INT   LOAD_TIMEOUT          15000    // ms para o modelo/animacao carregarem
 CONST_INT   PED_SCAN_TRIES        8        // quantos char a busca no poleiro pode percorrer
 CONST_INT   EVENT_WHIZZED          49      // "tiro passou de raspão" (080E)
+CONST_INT   CAW_DEFAULT_SEC         9      // "grasnado_a_cada" padrao (segundos)
 
 CONST_FLOAT DESPAWN_DIST          100.0    // distancia em que o corvo "esquece" o jogador
 CONST_FLOAT SPAWN_MIN_DIST        8.0      // nao nasce corvo colado no jogador
 CONST_FLOAT FLY_SPEED             10.0     // velocidade de cruzeiro
 CONST_FLOAT CLIMB_SPEED           10.0     // velocidade de subida
 CONST_FLOAT SINK_SPEED            -3.0     // descida (planeio) perto do chao
-CONST_FLOAT CRUISE_ALT            25.0     // altitude que o corvo procura
+CONST_FLOAT CRUISE_ALT_MIN        22.5     // altitude que o corvo procura (minimo)
+CONST_FLOAT CRUISE_ALT_MAX        27.5     // ... e maximo (o alvo e sorteado entre os dois)
 CONST_FLOAT LOW_HEIGHT            8.0      // abaixo disso comeca a descer para pousar
 CONST_FLOAT LAND_HEIGHT           2.0      // altura de pouso
 CONST_FLOAT SIGHT_DIST            12.0     // distancia da "visao" frontal
@@ -58,6 +74,11 @@ CONST_FLOAT FIRE_ALERT_DIST       5.0      // fogo perto demais
 CONST_FLOAT CAR_ALERT_DIST        10.0     // carro perto demais
 CONST_FLOAT CAR_ALERT_SPEED       5.0      // ... e rapido demais
 CONST_FLOAT GROUND_FAR            100.0    // altura falsa sobre a agua (nunca pousa)
+CONST_FLOAT PERCH_MIN_DIST         3.0     // distancia minima entre dois corvos pousados
+
+// Enderecos de clima do GTA SA 1.0 (lidos com 0A8D read_memory)
+CONST_INT   ADDR_RAIN             0xC81324   // CWeather::Rain (float)
+CONST_INT   ADDR_WEATHER_TYPE     0xC8131C   // CWeather::NewWeatherType (byte)
 
 
 // ---------------------------------------------------------------------------
@@ -76,7 +97,10 @@ LVAR_INT   crow[5]        // tamanho = MAX_CROWS (o gta3sc exige numero fixo)
 LVAR_INT   state[5]
 LVAR_INT   snd[5]
 LVAR_INT   slot, h, player, st, tmp, found
-LVAR_FLOAT px, py, pz, fx, fy, fz, ang, gz, rnd, alt
+LVAR_INT   cfg_max         // numero de corvos (vem do INI)
+LVAR_INT   cfg_misc        // bits 0/1 = nasce na chuva / na tempestade de areia
+                           // (bits 2+) / 4 = segundos entre grasnados
+LVAR_FLOAT px, py, pz, fx, fy, fz, ang, gz, rnd
 
 
 // ---------------------------------------------------------------------------
@@ -105,6 +129,7 @@ TERMINATE_THIS_CUSTOM_SCRIPT
 //  2) ZERA A TABELA E ENTRA NO LOOP
 // ---------------------------------------------------------------------------
 cv_ready:
+GOSUB cv_ini_load
 slot = 0
 WHILE slot < MAX_CROWS
     crow[slot] = 0
@@ -112,8 +137,9 @@ WHILE slot < MAX_CROWS
     snd[slot] = 0
     slot += 1
 ENDWHILE
-timera = SPAWN_DELAY
-timerb = RESPAWN_WAIT
+// cronometros "grandes" de proposito: o primeiro corvo nao precisa esperar
+timera = 60000
+timerb = 60000
 
 
 // ---------------------------------------------------------------------------
@@ -128,7 +154,7 @@ GET_PLAYER_CHAR 0 player
 
 // ---- roda a cabeca de cada corvo vivo --------------------------------
 slot = 0
-WHILE slot < MAX_CROWS
+WHILE slot < cfg_max
     GOSUB cv_tick
     slot += 1
 ENDWHILE
@@ -138,12 +164,8 @@ GOSUB cv_free_slot
 IF slot < 0
     GOTO cv_main
 ENDIF
-IF timera < SPAWN_DELAY
-    GOTO cv_main
-ENDIF
-IF timerb < RESPAWN_WAIT
-    GOTO cv_main
-ENDIF
+// as esperas (tempo_entre_corvos / tempo_para_renascer) sao conferidas
+// dentro do cv_spawn, onde sao lidas do CLEO/CORVOS.ini
 // garante que o jogo nao descarregou o ator especial / a animacao
 GOSUB cv_keep_loaded
 GOSUB cv_scan
@@ -156,7 +178,7 @@ GOTO cv_main
 cv_free_slot:
 slot = -1
 tmp = 0
-WHILE tmp < MAX_CROWS
+WHILE tmp < cfg_max
     IF crow[tmp] = 0
         slot = tmp
         BREAK
@@ -170,22 +192,99 @@ RETURN
 //  cv_keep_loaded   o jogo pode soltar o ator especial se ninguem usar
 // ---------------------------------------------------------------------------
 cv_keep_loaded:
+// pede o modelo/animacao de volta, mas NAO fica esperando: esperar aqui
+// travava o script inteiro (corvo demorava segundos para nascer)
 IF HAS_SPECIAL_CHARACTER_LOADED CROW_SLOT
 AND HAS_ANIMATION_LOADED "RAVEN"
     RETURN
 ENDIF
 LOAD_SPECIAL_CHARACTER CROW_SLOT CROW01
 REQUEST_ANIMATION "RAVEN"
-timera = 0
-cv_keep_wait:
-WAIT 0
-IF HAS_SPECIAL_CHARACTER_LOADED CROW_SLOT
-AND HAS_ANIMATION_LOADED "RAVEN"
-    RETURN
+RETURN
+
+
+// ---------------------------------------------------------------------------
+//  cv_ini_load   le a configuracao do CLEO/CORVOS.ini
+//                (cria o arquivo com os valores padrao se ele nao existir)
+// ---------------------------------------------------------------------------
+cv_ini_load:
+IF DOES_FILE_EXIST "CLEO/CORVOS.ini"
+    GOTO cv_ini_read
 ENDIF
-IF timera < LOAD_TIMEOUT
-    GOTO cv_keep_wait
+WRITE_INT_TO_INI_FILE MAX_CROWS "CLEO/CORVOS.ini" "corvos" "numero_de_corvos"
+WRITE_INT_TO_INI_FILE 0 "CLEO/CORVOS.ini" "corvos" "nascer_na_chuva"
+WRITE_INT_TO_INI_FILE 0 "CLEO/CORVOS.ini" "corvos" "nascer_na_tempestade_de_areia"
+WRITE_INT_TO_INI_FILE CAW_DEFAULT_SEC "CLEO/CORVOS.ini" "corvos" "grasnado_a_cada"
+WRITE_INT_TO_INI_FILE 0 "CLEO/CORVOS.ini" "corvos" "desligar_som"
+WRITE_FLOAT_TO_INI_FILE 0.7 "CLEO/CORVOS.ini" "corvos" "volume_grasnado"
+WRITE_FLOAT_TO_INI_FILE 0.5 "CLEO/CORVOS.ini" "corvos" "volume_asas"
+WRITE_INT_TO_INI_FILE SPAWN_DELAY "CLEO/CORVOS.ini" "corvos" "tempo_entre_corvos"
+WRITE_INT_TO_INI_FILE RESPAWN_WAIT "CLEO/CORVOS.ini" "corvos" "tempo_para_renascer"
+IF DOES_FILE_EXIST "CLEO/CORVOS.ini"
+    GOTO cv_ini_read
 ENDIF
+// a pasta do jogo esta protegida e o arquivo nao pode ser criado: segue com os
+// valores padrao do proprio script
+cfg_max = MAX_CROWS
+cfg_misc = CAW_DEFAULT_SEC
+cfg_misc *= 4
+RETURN
+
+cv_ini_read:
+READ_INT_FROM_INI_FILE "CLEO/CORVOS.ini" "corvos" "numero_de_corvos" cfg_max
+IF cfg_max < 1
+    cfg_max = MAX_CROWS              // arquivo sem o valor: usa o padrao
+ENDIF
+IF cfg_max > MAX_CROWS
+    cfg_max = MAX_CROWS
+ENDIF
+// cfg_misc = bit0 (nasce na chuva) + bit1 (nasce na tempestade de areia)
+//            + 4 * segundos entre grasnados
+cfg_misc = 0
+READ_INT_FROM_INI_FILE "CLEO/CORVOS.ini" "corvos" "nascer_na_chuva" tmp
+IF NOT tmp = 0
+    cfg_misc = 1
+ENDIF
+READ_INT_FROM_INI_FILE "CLEO/CORVOS.ini" "corvos" "nascer_na_tempestade_de_areia" tmp
+IF NOT tmp = 0
+    cfg_misc += 2
+ENDIF
+READ_INT_FROM_INI_FILE "CLEO/CORVOS.ini" "corvos" "grasnado_a_cada" tmp
+IF tmp < 0
+    tmp = 0
+ENDIF
+IF tmp > 120
+    tmp = 120
+ENDIF
+tmp *= 4
+cfg_misc += tmp
+RETURN
+
+
+// ---------------------------------------------------------------------------
+//  cv_perch_busy   st = 1 quando ja tem corvo perto do poleiro (px py pz)
+//                  usado para dois corvos nao nascerem no mesmo ponto
+// ---------------------------------------------------------------------------
+cv_perch_busy:
+st = 0
+tmp = 0
+cv_busy_loop:
+IF crow[tmp] = 0
+    GOTO cv_busy_next
+ENDIF
+h = crow[tmp]
+IF DOES_CHAR_EXIST h
+    IF LOCATE_CHAR_ANY_MEANS_3D h px py pz PERCH_MIN_DIST PERCH_MIN_DIST PERCH_MIN_DIST 0
+        st = 1
+        GOTO cv_busy_done
+    ENDIF
+ENDIF
+cv_busy_next:
+tmp += 1
+IF tmp < cfg_max
+    GOTO cv_busy_loop
+ENDIF
+cv_busy_done:
 RETURN
 
 
@@ -207,12 +306,21 @@ IF tmp <= 0
     RETURN
 ENDIF
 IF NOT LOCATE_CHAR_ANY_MEANS_CHAR_3D player h DESPAWN_DIST DESPAWN_DIST DESPAWN_DIST 0
-    GOSUB cv_release
-    RETURN
+    // longe do jogador: so desaparece se nao estiver na tela -- se o jogador
+    // estiver olhando (camera de noclip, por exemplo) o corvo continua vivo
+    GET_CHAR_COORDINATES h px py pz
+    IF NOT IS_POINT_ON_SCREEN px py pz 5.0
+        st = 1                    // 1 = apaga o corpo (nao vira npc comum)
+        GOSUB cv_release
+        RETURN
+    ENDIF
 ENDIF
 st = state[slot]
 IF st = STATE_PERCH
     GOSUB cv_perch
+ENDIF
+IF st = STATE_CLIMB
+    GOSUB cv_fly_climb
 ENDIF
 IF st = STATE_FLY
     GOSUB cv_fly
@@ -279,6 +387,17 @@ IF GET_RANDOM_CAR_IN_SPHERE_NO_SAVE_RECURSIVE px py pz CAR_ALERT_DIST 0 0 found
         ENDIF
     ENDIF
 ENDIF
+
+// grasnado de vez em quando (o "grasnado_a_cada" do INI diz de quantos em
+// quantos segundos, em media). cfg_misc / 4 = segundos
+st = cfg_misc / 4
+IF st > 0
+    st *= 60                       // segundos -> quadros (60 fps)
+    GENERATE_RANDOM_INT_IN_RANGE 0 st tmp
+    IF tmp = 0
+        GOSUB cv_audio_caw_again
+    ENDIF
+ENDIF
 RETURN
 
 
@@ -290,8 +409,9 @@ TASK_PLAY_ANIM_NON_INTERRUPTABLE h "FLY_raven" "RAVEN" 4.0 TRUE TRUE TRUE TRUE -
 CLEAR_CHAR_LAST_WEAPON_DAMAGE h
 CLEAR_CHAR_LAST_DAMAGE_ENTITY h
 GOSUB cv_audio_wings
-state[slot] = STATE_FLY
-SET_CHAR_COLLISION h FALSE
+state[slot] = STATE_CLIMB
+// NAO desligar a colisao aqui: sem colisao o motor nao aplica o impulso
+// (e o corvo fica parado no ar batendo as asas -- era o defeito da 2.1)
 SET_CHAR_VELOCITY h 0.0 0.0 CLIMB_SPEED
 GET_CHAR_HEADING h ang
 SET_CHAR_ROTATION h 10.0 0.0 ang
@@ -302,28 +422,50 @@ RETURN
 //  cv_fly   voando: procura altitude, desvia de parede, pousa
 // ---------------------------------------------------------------------------
 cv_fly:
+// A colisao TEM que ficar ligada voando. Com ela desligada (0619 FALSE) o
+// ApplyMoveSpeed do motor nao roda e o corvo fica parado no ar, so batendo
+// as asas -- o mod original desligava a colisao so no primeiro quadro do voo.
+SET_CHAR_COLLISION h TRUE
 GET_CHAR_HEADING h ang
 GET_CHAR_HEIGHT_ABOVE_GROUND h gz
 IF IS_CHAR_IN_WATER h
     gz = GROUND_FAR
 ENDIF
 IF gz <= LAND_HEIGHT
-    GOTO cv_land
+    GOTO cv_land                      // encostou no chao: pousa
 ENDIF
+fz = 0.0                              // cruzeiro: voo reto
+IF gz <= LOW_HEIGHT
+    fz = SINK_SPEED                   // chegou perto do chao: plana para pousar
+ENDIF
+GOTO cv_fly_go
 
+
+// ---------------------------------------------------------------------------
+//  cv_fly_climb   subindo: e o "LOPA" do mod original
+//
+//  Enquanto nao chega na altura de cruzeiro o corvo sobe direto (Z = +10).
+//  Antes a subida e o cruzeiro eram o mesmo trecho e o corvo que decolava de um
+//  poleiro baixo (menos de 8 m do chao) caia na regra do "plana para pousar":
+//  ele descia, pousava no chao e ficava pulando de lugar -- o corvo parecia
+//  andar no chao em vez de ir embora.
+// ---------------------------------------------------------------------------
+cv_fly_climb:
+SET_CHAR_COLLISION h TRUE
+GET_CHAR_HEADING h ang
+GET_CHAR_HEIGHT_ABOVE_GROUND h gz
+IF IS_CHAR_IN_WATER h
+    gz = GROUND_FAR
+ENDIF
 // altitude alvo (varia de leve para o voo nao ficar mecanico)
-GENERATE_RANDOM_FLOAT_IN_RANGE -2.5 2.5 rnd
-alt = CRUISE_ALT + rnd
-IF gz >= alt
-    fz = 0.0                          // ja esta na altura: voo reto
-ELSE
-    IF gz <= LOW_HEIGHT
-        fz = SINK_SPEED                // perto do chao: plana para pousar
-    ELSE
-        fz = CLIMB_SPEED
-    ENDIF
+GENERATE_RANDOM_FLOAT_IN_RANGE CRUISE_ALT_MIN CRUISE_ALT_MAX rnd
+IF gz >= rnd
+    state[slot] = STATE_FLY           // subiu o bastante: vira cruzeiro
 ENDIF
+fz = CLIMB_SPEED
 
+// daqui para baixo e o voo em si (igual para subida e cruzeiro)
+cv_fly_go:
 // o que tem na frente?
 GET_OFFSET_FROM_CHAR_IN_WORLD_COORDS h 0.0 0.0 0.0 px py pz
 GET_OFFSET_FROM_CHAR_IN_WORLD_COORDS h 0.0 SIGHT_DIST 0.0 fx fy rnd
@@ -375,6 +517,7 @@ IF gz > LAND_HEIGHT
     RETURN
 ENDIF
 TASK_DIE_NAMED_ANIM h "DIE_raven" "RAVEN" 4.0 0
+st = 0                             // 0 = deixa o corpo no chao
 GOSUB cv_release
 RETURN
 
@@ -382,10 +525,16 @@ RETURN
 // ---------------------------------------------------------------------------
 //  cv_release   libera a vaga, o audio e o corpo
 // ---------------------------------------------------------------------------
+// cv_release   entrada: st = 0 deixa o corpo no chao (morreu)
+//                        st = 1 apaga o corpo (saiu de perto, viraria npc)
 cv_release:
 SET_CHAR_COLLISION h TRUE
 GOSUB cv_audio_off
-MARK_CHAR_AS_NO_LONGER_NEEDED h
+IF st = 1
+    DELETE_CHAR h
+ELSE
+    MARK_CHAR_AS_NO_LONGER_NEEDED h
+ENDIF
 crow[slot] = 0
 state[slot] = STATE_FREE
 snd[slot] = 0
@@ -416,26 +565,64 @@ IF NOT snd[slot] = 0
 ENDIF
 RETURN
 
-cv_audio_wings:
-GOSUB cv_audio_off
-LOAD_3D_AUDIO_STREAM "CLEO/SOUNDS/WINGS.mp3" tmp
+
+// cv_audio_play   carrega e toca um dos dois sons (asas ou grasnado)
+//                 entrada: found = 1 (asas) ou 2 (grasnado), h = o corvo
+//                 volumes e "desligar_som" vem do CLEO/CORVOS.ini
+cv_audio_play:
+READ_INT_FROM_INI_FILE "CLEO/CORVOS.ini" "corvos" "desligar_som" tmp
 IF NOT tmp = 0
+    RETURN                            // som desligado no INI
+ENDIF
+IF found = 2
+    LOAD_3D_AUDIO_STREAM "CLEO/SOUNDS/CROW.mp3" tmp
+    IF tmp = 0
+        RETURN
+    ENDIF
     snd[slot] = tmp
-    SET_AUDIO_STREAM_LOOPED tmp TRUE
-    SET_AUDIO_STREAM_STATE tmp AUDIO_PLAY
-    SET_PLAY_3D_AUDIO_STREAM_AT_CHAR tmp h
+    SET_AUDIO_STREAM_LOOPED tmp FALSE    // grasnado toca uma vez (nao fica repetindo)
+    READ_FLOAT_FROM_INI_FILE "CLEO/CORVOS.ini" "corvos" "volume_grasnado" rnd
+ELSE
+    LOAD_3D_AUDIO_STREAM "CLEO/SOUNDS/WINGS.mp3" tmp
+    IF tmp = 0
+        RETURN
+    ENDIF
+    snd[slot] = tmp
+    SET_AUDIO_STREAM_LOOPED tmp TRUE     // asas ficam batendo enquanto voa
+    READ_FLOAT_FROM_INI_FILE "CLEO/CORVOS.ini" "corvos" "volume_asas" rnd
+ENDIF
+SET_AUDIO_STREAM_STATE tmp AUDIO_PLAY
+SET_PLAY_3D_AUDIO_STREAM_AT_CHAR tmp h
+IF rnd > 0.0
+    SET_AUDIO_STREAM_VOLUME tmp rnd
 ENDIF
 RETURN
 
+
+cv_audio_wings:
+GOSUB cv_audio_off
+found = 1
+GOSUB cv_audio_play
+RETURN
+
+
 cv_audio_caw:
 GOSUB cv_audio_off
-LOAD_3D_AUDIO_STREAM "CLEO/SOUNDS/CROW.mp3" tmp
-IF NOT tmp = 0
-    snd[slot] = tmp
-    SET_AUDIO_STREAM_LOOPED tmp TRUE
-    SET_AUDIO_STREAM_STATE tmp AUDIO_PLAY
-    SET_PLAY_3D_AUDIO_STREAM_AT_CHAR tmp h
+found = 2
+GOSUB cv_audio_play
+RETURN
+
+
+// cv_audio_caw_again   grasnado extra: o stream do grasnado ja esta carregado
+//                      (o corvo esta pousado), entao so toca de novo
+cv_audio_caw_again:
+IF NOT snd[slot] = 0
+    SET_AUDIO_STREAM_STATE snd[slot] AUDIO_PLAY
+    SET_PLAY_3D_AUDIO_STREAM_AT_CHAR snd[slot] h
+    RETURN
 ENDIF
+found = 2
+GOSUB cv_audio_play
 RETURN
 
 
@@ -444,8 +631,31 @@ RETURN
 //  entrada: px py pz = posicao do poleiro, ang = direcao
 // ---------------------------------------------------------------------------
 cv_spawn:
+// esperas configuradas no CLEO/CORVOS.ini (0 = sem espera)
+READ_INT_FROM_INI_FILE "CLEO/CORVOS.ini" "corvos" "tempo_entre_corvos" st
+IF timera < st
+    RETURN                            // ainda e cedo para outro corvo
+ENDIF
+READ_INT_FROM_INI_FILE "CLEO/CORVOS.ini" "corvos" "tempo_para_renascer" st
+IF timerb < st
+    RETURN                            // acabou de sair um corvo
+ENDIF
 IF LOCATE_CHAR_ANY_MEANS_3D player px py pz SPAWN_MIN_DIST SPAWN_MIN_DIST SPAWN_MIN_DIST 0
     RETURN                            // nasceria em cima do jogador
+ENDIF
+// dois corvos no mesmo ponto era o que fazia parecer "um corvo so":
+// se ja tem um corvo em cima deste poleiro, nao nasce outro
+GOSUB cv_perch_busy
+IF st = 1
+    RETURN
+ENDIF
+// so cria quando o modelo e a animacao estao mesmo carregados (sem esperar:
+// no proximo quadro a varredura tenta de novo)
+IF NOT HAS_SPECIAL_CHARACTER_LOADED CROW_SLOT
+    RETURN
+ENDIF
+IF NOT HAS_ANIMATION_LOADED "RAVEN"
+    RETURN
 ENDIF
 CREATE_CHAR PEDTYPE_CIVMALE CROW_MODEL px py pz h
 IF NOT DOES_CHAR_EXIST h
@@ -471,6 +681,26 @@ RETURN
 //  Estes 13 gatilhos e 64 pontos vieram dos cinco scripts originais.
 // ---------------------------------------------------------------------------
 cv_scan:
+// clima: por padrao o corvo nao nasce na chuva nem na tempestade de areia
+// (o CLEO/CORVOS.ini manda; o clima e lido da memoria do GTA SA 1.0)
+st = cfg_misc / 4
+st *= 4
+tmp = cfg_misc - st                   // tmp = os dois bits de clima (0..3)
+found = tmp / 2                       // 1 = pode nascer na tempestade de areia
+IF found = 0
+    READ_MEMORY ADDR_WEATHER_TYPE 1 0 st
+    IF st = WEATHER_SANDSTORM_DESERT
+        RETURN
+    ENDIF
+ENDIF
+found *= 2
+st = tmp - found                      // st = 1 quando pode nascer na chuva
+IF st = 0
+    READ_MEMORY ADDR_RAIN 4 0 rnd     // CWeather::Rain (float)
+    IF rnd > 0.0
+        RETURN
+    ENDIF
+ENDIF
 // Tabela gerada por tools/gen_corvos.py a partir de CROW1..CROW5.
 // Nao edite a mao: mexa em tools/corvos_logic.sc.txt e rode o gerador.
 // 13 areas, 64 poleiros.

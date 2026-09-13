@@ -2,6 +2,7 @@
 # ---------------------------------------------------------------------------
 #  Monta a pasta pronta para instalar (dist/), juntando:
 #     dist/CLEO/CORVOS.cs                 script novo compilado
+#     dist/CLEO/CORVOS.ini                configuracao (editavel pelo jogador)
 #     dist/CLEO/sounds/CROW.mp3           sons originais do mod
 #     dist/CLEO/sounds/WINGS.mp3
 #     dist/gta3img/CROW01.dff             modelo/textura/animacao originais
@@ -26,6 +27,7 @@ rm -rf "$DIST"
 mkdir -p "$DIST/CLEO/sounds" "$DIST/gta3img"
 
 cp "$REPO/build/CLEO/CORVOS.cs" "$DIST/CLEO/CORVOS.cs"
+cp "$REPO/build/CLEO/CORVOS.ini" "$DIST/CLEO/CORVOS.ini"
 cp "$ORIG/CLEO/sounds/CROW.mp3" "$DIST/CLEO/sounds/CROW.mp3"
 cp "$ORIG/CLEO/sounds/WINGS.mp3" "$DIST/CLEO/sounds/WINGS.mp3"
 cp "$ORIG/gtaimg/CROW01.dff" "$DIST/gta3img/CROW01.dff"
