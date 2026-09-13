@@ -197,6 +197,10 @@ h = crow[slot]
 IF h = 0
     RETURN
 ENDIF
+IF NOT DOES_CHAR_EXIST h
+    GOSUB cv_forget                   // o jogo soltou o corpo: so libera a vaga
+    RETURN
+ENDIF
 GET_CHAR_HEALTH h tmp
 IF tmp <= 0
     GOSUB cv_die
@@ -231,21 +235,26 @@ IF IS_CHAR_IN_WATER h
 ENDIF
 
 // pedestres por perto (outros corvos nao contam)
+//
+// IMPORTANTE: 0AE1 grava -1 (nao 0) quando nao acha ninguem, e o teste tem que
+// ser pela propria condicao do opcode (como no mod original) -- comparar o
+// valor com 0 deixava passar -1 e o jogo batia em IS_CHAR_MODEL -1 (crash).
 GET_CHAR_COORDINATES h px py pz
 st = 0
 tmp = 0
 cv_perch_peds:
-GET_RANDOM_CHAR_IN_SPHERE_NO_SAVE_RECURSIVE px py pz PED_ALERT_DIST tmp 1 found
-IF found = 0
-    GOTO cv_perch_fire
-ENDIF
-IF NOT IS_CHAR_MODEL found CROW_MODEL
-    GOTO cv_takeoff
-ENDIF
-tmp = 1
-st += 1
-IF st < PED_SCAN_TRIES
-    GOTO cv_perch_peds
+IF GET_RANDOM_CHAR_IN_SPHERE_NO_SAVE_RECURSIVE px py pz PED_ALERT_DIST tmp 1 found
+    IF NOT found > 0
+        GOTO cv_perch_fire          // nao achou ninguem: pula para a checagem de fogo
+    ENDIF
+    IF NOT IS_CHAR_MODEL found CROW_MODEL
+        GOTO cv_takeoff
+    ENDIF
+    tmp = 1
+    st += 1
+    IF st < PED_SCAN_TRIES
+        GOTO cv_perch_peds
+    ENDIF
 ENDIF
 
 // fogo por perto
@@ -261,12 +270,13 @@ IF tmp = EVENT_WHIZZED
     GOTO cv_takeoff
 ENDIF
 
-// carro rapido por perto
-GET_RANDOM_CAR_IN_SPHERE_NO_SAVE_RECURSIVE px py pz CAR_ALERT_DIST 0 0 found
-IF NOT found = 0
-    GET_CAR_SPEED found rnd
-    IF rnd > CAR_ALERT_SPEED
-        GOTO cv_takeoff
+// carro rapido por perto (0AE2 tambem grava -1 quando nao acha nada)
+IF GET_RANDOM_CAR_IN_SPHERE_NO_SAVE_RECURSIVE px py pz CAR_ALERT_DIST 0 0 found
+    IF found > 0
+        GET_CAR_SPEED found rnd
+        IF rnd > CAR_ALERT_SPEED
+            GOTO cv_takeoff
+        ENDIF
     ENDIF
 ENDIF
 RETURN
@@ -383,6 +393,17 @@ timerb = 0
 RETURN
 
 
+// cv_forget   o corpo sumiu sozinho (o jogo liberou o ped): nao da para tocar
+//             nele, entao so limpa a vaga e o audio
+cv_forget:
+GOSUB cv_audio_off
+crow[slot] = 0
+state[slot] = STATE_FREE
+snd[slot] = 0
+timerb = 0
+RETURN
+
+
 // ---------------------------------------------------------------------------
 //  AUDIO 3D   (0AC1 carrega, 0AC0 poe em loop, 0AAD toca/para, 0AAE libera,
 //              0AC4 amarra o som no corpo do corvo)
@@ -427,6 +448,9 @@ IF LOCATE_CHAR_ANY_MEANS_3D player px py pz SPAWN_MIN_DIST SPAWN_MIN_DIST SPAWN_
     RETURN                            // nasceria em cima do jogador
 ENDIF
 CREATE_CHAR PEDTYPE_CIVMALE CROW_MODEL px py pz h
+IF NOT DOES_CHAR_EXIST h
+    RETURN                            // pool cheio ou modelo ainda chegando: tenta no proximo quadro
+ENDIF
 SET_CHAR_HEALTH h CROW_HEALTH
 SET_CHAR_HEADING h ang
 crow[slot] = h

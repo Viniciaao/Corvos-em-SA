@@ -1,4 +1,4 @@
-# Corvos do GTA V — versão 2 (reescrita)
+# Corvos do GTA V — versão 2.1 (reescrita)
 
 Reescrita do mod **Corvos do GTA V** (original de *Dakurlz*): corvos do GTA V
 pousados pelo mapa de San Andreas que levantam voo quando o jogador (ou uma
@@ -6,6 +6,10 @@ ameaça) chega perto.
 
 Esta versão junta os cinco scripts originais (`CROW1` … `CROW5`) em **um único
 script**, corrige os erros de lógica do original e usa o áudio 3D do CLEO.
+
+* **2.1** — corrige o travamento relatado em jogo na procura de pedestres no
+  poleiro (o `0AE1` devolve **-1** quando não acha ninguém; o teste antigo não
+  pegava esse valor). Ver a seção 4 do relatório.
 
 * **Pacote pronto para instalar:** [`dist/`](dist/) — `CLEO/CORVOS.cs`,
   `CLEO/sounds/*.mp3`, `gta3img/*` e o `LEIAME.txt`.

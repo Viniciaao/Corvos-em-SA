@@ -93,7 +93,46 @@ Tudo que costuma ser ajustado está no bloco `CONFIGURACAO` do `src/CORVOS.sc`
 
 ---
 
-## 4. Verificação feita
+## 4. Correção do crash da versão 2.0 (v2.1)
+
+**O que aconteceu em jogo** (relato do jogador, com log do SCRLog): travamento em
+`IS_CHAR_MODEL -1`, dentro do trecho que procura pedestres perto do poleiro.
+
+**Causa**: `0AE1` (procurar alguém perto do ponto) **não grava 0 quando não acha
+ninguém — grava -1**. O código testava `IF found = 0` para detectar a falha; com
+-1 o teste passava como "achou alguém", o -1 ia direto para `IS_CHAR_MODEL -1 290`
+e o jogo caía (esse opcode não confere se o handle é válido antes de usar).
+O mod **original** usava a própria condição do opcode (`if 0AE1: ... jf @EV`) e
+por isso não tinha o problema — foi a reescrita que trocou isso por uma
+comparação e criou o defeito.
+
+**O que mudou na 2.1**:
+
+* as buscas de pedestre e de carro (`0AE1`/`0AE2`) voltaram a testar a
+  **condição do opcode**, com uma trava extra de valor (`found > 0`) — nada é
+  usado quando a busca falha, valendo 0, -1 ou qualquer outro retorno;
+* `CREATE_CHAR` também devolve -1 quando falha (pool de ped cheio, modelo ainda
+  chegando) e passou a ser conferido com `DOES_CHAR_EXIST` antes de qualquer uso;
+* `cv_tick` confere `DOES_CHAR_EXIST` em cada corvo a cada quadro: se o jogo
+  soltar o corpo, a vaga é liberada (`cv_forget`) em vez de mexer em handle morto;
+* `cv_die`, `cv_release`, `cv_takeoff` e o áudio nunca são chamados com handle
+  inválido (todos passam pela conferência do `cv_tick`).
+
+**Como isso foi conferido**: o log do SCRLog provou que os endereços do script no
+jogo são os mesmos offsets do arquivo compilado (269 = 0x10D, 647 = 0x287,
+938 = 0x3AA, 1045 = 0x415), o que permitiu **calibrar o desmontador**
+(`tools/scm_disasm.py`) contra valores reais do motor: no bytecode do gta3sc o
+operando do salto é o **negativo do endereço absoluto do alvo** (no log:
+`GOTO -938` → alvo 938, `GOTO_IF_FALSE -344` → alvo 344, `GOSUB -647` → alvo 647).
+Com a regra certa, os 185 saltos do script resolvem 100% em limites de instrução
+(antes o desmontador imprimia números sem sentido). A correção foi então
+conferida no bytecode novo: `0AE1` seguido de `GOTO_IF_FALSE` (falhou → pula
+direto para a checagem de fogo), `IS_CHAR_MODEL` só alcançável dentro do bloco da
+busca, e as duas guardas `056D DOES_CHAR_EXIST` (uma por quadro no `cv_tick`, uma
+depois do `009A CREATE_CHAR`).
+
+
+## 5. Verificação feita
 
 Não é possível rodar o GTA neste ambiente, então a verificação foi estática — mas
 foi até o byte:
@@ -131,12 +170,18 @@ foi até o byte:
    moderno; os opcodes de áudio (0AC0/0AC1/0AC4) foram conferidos no fonte do
    CLEO 4 (`CCustomOpcodeSystem.cpp`, L1885+), que é quem os implementa.
 
+6. **Confronto com o jogo de verdade**: o log do SCRLog (da primeira versão
+   jogada) foi usado como gabarito — os offsets, os saltos e os opcodes relatados
+   pelo motor batem com a desmontagem do arquivo compilado, o que valida tanto o
+   compilador quanto o desmontador. Foi esse confronto que apontou o defeito da
+   seção 4.
+
 O que **não** foi testado: comportamento dentro do jogo (spawn, voo, som). O
 script compila e o bytecode foi conferido, mas o teste final é jogar.
 
 ---
 
-## 5. Como recompilar
+## 6. Como recompilar
 
 ```sh
 sh tools/build.sh      # gera src/CORVOS.sc e compila para build/CLEO/CORVOS.cs
@@ -161,7 +206,7 @@ dist/                      pacote final (CLEO + gta3img + LEIAME)
 
 ---
 
-## 6. Créditos
+## 7. Créditos
 
 * **Dakurlz** — mod original e scripts `CROW1` … `CROW5`.
 * **JuniorDjjr**, **MixMods**, **BrModStudio** — divulgação/ferramentas citadas no

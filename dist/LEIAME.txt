@@ -1,11 +1,14 @@
 ===========================================================================
- CORVOS DO GTA V  -  versao 2 (reescrita)
+ CORVOS DO GTA V  -  versao 2.1 (reescrita)
 ===========================================================================
 
  Mod original: Dakurlz
  Creditos originais: JuniorDjjr (blog), MixMods, BrModStudio
- Versao 2: um script unico (CORVOS.cs) no lugar dos cinco antigos
+ Versao 2.1: um script unico (CORVOS.cs) no lugar dos cinco antigos
            (CROW1.cs ... CROW5.cs), com os erros de logica corrigidos.
+           2.1 = corrige um crash durante a procura de pedestres no poleiro
+           (o opcode que procura alguem por perto devolve -1 quando nao
+           acha ninguem; o teste antigo nao pegava esse -1).
 
  O que o mod faz
  ---------------
