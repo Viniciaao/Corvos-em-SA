@@ -1,0 +1,92 @@
+===========================================================================
+ CORVOS DO GTA V  -  versao 2 (reescrita)
+===========================================================================
+
+ Mod original: Dakurlz
+ Creditos originais: JuniorDjjr (blog), MixMods, BrModStudio
+ Versao 2: um script unico (CORVOS.cs) no lugar dos cinco antigos
+           (CROW1.cs ... CROW5.cs), com os erros de logica corrigidos.
+
+ O que o mod faz
+ ---------------
+ Coloca corvos do GTA V pousados em 64 pontos do mapa (telhados, postes,
+ muros...), nas mesmas 13 regioes do mod original. Quando o jogador chega
+ perto, um corvo aparece no poleiro que estiver na tela. Ele fica pousado
+ grasnando e levanta voo se:
+    - o jogador chega a menos de 10 m
+    - o jogador atira nele
+    - ele cai na agua
+    - algum pedestre passa a menos de 10 m
+    - tem fogo a menos de 5 m
+    - um tiro passa de raspão
+    - um carro passa a menos de 10 m a mais de 5.0 de velocidade
+ No ar ele sobe ate uns 25 m, desvia de paredes olhando 12 m a frente,
+ plana para pousar e grasna de novo ao pousar. Se for morto, cai
+ (DIE_fly), toca a animacao de morte no chao (DIE_raven) e o corpo fica
+ na cena ate o jogador se afastar 100 m.
+ O som e 3D: asas batendo no voo, grasnado no poleiro, presos ao corpo
+ do corvo (CLEO 0AC1/0AC2/0AC4).
+
+ Requisitos
+ ----------
+   - GTA San Andreas 1.0 (PC)
+   - CLEO 4.3 ou superior (o audio 3D usa opcodes do CLEO)
+   - ModLoader (opcional, deixa a instalacao mais limpa)
+
+ Instalacao
+ ----------
+ 1) Script e sons
+      copie a pasta CLEO deste pacote para a pasta do GTA San Andreas
+      (junto do gta_sa.exe), ficando assim:
+
+          GTA San Andreas/
+            CLEO/
+              CORVOS.cs            <- o script novo
+              sounds/
+                CROW.mp3
+                WINGS.mp3
+
+ 2) Modelo, textura e animacao
+      importe os arquivos da pasta gta3img deste pacote no gta3.img:
+
+          CROW01.dff
+          CROW01.txd
+          raven.ifp
+
+      Use o Alci's IMG Editor (ou outro editor de IMG). Se preferir o
+      ModLoader, crie uma pasta dentro de modloader com esses arquivos
+      dentro de uma subpasta chamada gta3img (o ModLoader virtualiza o
+      gta3.img).
+
+      IMPORTANTE: o modelo tem que estar no gta3.img (ou no ModLoader).
+      O nome do arquivo e o nome usado pelo script - nao renomeie.
+
+ 3) Apague os scripts antigos
+      CLEO/CROW1.cs, CROW2.cs, CROW3.cs, CROW4.cs, CROW5.cs
+      (se sobrar algum deles, o corvo daquela area aparece em dobro)
+
+ Se aparecer a mensagem vermelha "CROW01.dff e raven.ifp nao estao no
+ gta3.img", o passo 2 nao foi feito (ou o CLEO nao conseguiu carregar).
+
+ Ajustes rapidos
+ ---------------
+ Tudo que da para mexer esta no comeco do fonte src/CORVOS.sc, na parte
+ CONFIGURACAO: vida do corvo, quantos corvos ao mesmo tempo, tempo entre
+ aparicoes, tempo de espera depois que um corvo morre, velocidade e
+ altitude de voo, distancias de alerta, etc.
+
+ Para mudar e recompilar:
+      sh tools/build.sh          (gera build/CLEO/CORVOS.cs)
+      sh tools/package.sh        (remonta a pasta dist/)
+
+ O compilador (gta3sc) e baixado e compilado na primeira vez; depois disso
+ o script usa o binario guardado em tools/.gta3sc/build/gta3sc.
+
+ Creditos
+ --------
+   - Dakurlz ................ mod original (scripts CROW1..CROW5)
+   - JuniorDjjr / MixMods ... divulgacao e ferramentas da comunidade
+   - BrModStudio ............ comunidade original
+   - thelink2012 ............ compilador gta3sc
+   - o modelo, a textura, a animacao e os sons vieram do mod original
+===========================================================================

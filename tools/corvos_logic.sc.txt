@@ -1,0 +1,455 @@
+// ===========================================================================
+//  CORVOS DO GTA V  -  versao 2 (reescrito, corrigido e otimizado)
+//
+//  Mod original: Dakurlz
+//  Creditos originais: JuniorDjjr (blog), MixMods, BrModStudio
+//  Esta versao: um unico script no lugar dos cinco antigos (CROW1..CROW5)
+//
+//  INSTALACAO (veja o LEIAME.txt do pacote):
+//    1. copie a pasta CLEO (com CORVOS.cs e a pasta sounds) para a pasta do GTA
+//    2. coloque CROW01.dff, CROW01.txd e raven.ifp no gta3.img
+//       (ou na pasta gta3img do ModLoader)
+//    3. apague os scripts antigos CROW1.cs ... CROW5.cs
+//
+//  REQUISITOS
+//    - GTA San Andreas 1.0 (PC)
+//    - CLEO 4.3 ou superior. Os opcodes de audio 3D (0AC1/0AC4) e as esperas
+//      por stream de audio sao do CLEO, nao do jogo.
+//
+//  COMO COMPILAR:  sh tools/build.sh        (usa o compilador gta3sc)
+//                  saida: build/CORVOS.cs
+// ===========================================================================
+
+
+// ---------------------------------------------------------------------------
+//  CONFIGURACAO
+// ---------------------------------------------------------------------------
+CONST_INT   MAX_CROWS             5        // corvos ao mesmo tempo
+CONST_INT   CROW_MODEL            290      // #SPECIAL01 (023C carrega no slot 1)
+CONST_INT   CROW_SLOT             1        // slot do ator especial (1..10)
+CONST_INT   CROW_HEALTH           50       // vida do corvo (a 0223 usa inteiro)
+
+CONST_INT   STATE_FREE            0
+CONST_INT   STATE_PERCH           1
+CONST_INT   STATE_FLY             2
+CONST_INT   STATE_DIE             3
+
+CONST_INT   AUDIO_STOP            0
+CONST_INT   AUDIO_PLAY            1
+
+CONST_INT   SPAWN_DELAY           500      // ms entre a chegada de um corvo e outro
+CONST_INT   RESPAWN_WAIT          10000    // ms de espera depois que um corvo sai
+CONST_INT   LOAD_TIMEOUT          15000    // ms para o modelo/animacao carregarem
+CONST_INT   PED_SCAN_TRIES        8        // quantos char a busca no poleiro pode percorrer
+CONST_INT   EVENT_WHIZZED          49      // "tiro passou de raspão" (080E)
+
+CONST_FLOAT DESPAWN_DIST          100.0    // distancia em que o corvo "esquece" o jogador
+CONST_FLOAT SPAWN_MIN_DIST        8.0      // nao nasce corvo colado no jogador
+CONST_FLOAT FLY_SPEED             10.0     // velocidade de cruzeiro
+CONST_FLOAT CLIMB_SPEED           10.0     // velocidade de subida
+CONST_FLOAT SINK_SPEED            -3.0     // descida (planeio) perto do chao
+CONST_FLOAT CRUISE_ALT            25.0     // altitude que o corvo procura
+CONST_FLOAT LOW_HEIGHT            8.0      // abaixo disso comeca a descer para pousar
+CONST_FLOAT LAND_HEIGHT           2.0      // altura de pouso
+CONST_FLOAT SIGHT_DIST            12.0     // distancia da "visao" frontal
+CONST_FLOAT PLAYER_ALERT_DIST     10.0     // jogador perto demais
+CONST_FLOAT PED_ALERT_DIST        10.0     // pedestre perto demais
+CONST_FLOAT FIRE_ALERT_DIST       5.0      // fogo perto demais
+CONST_FLOAT CAR_ALERT_DIST        10.0     // carro perto demais
+CONST_FLOAT CAR_ALERT_SPEED       5.0      // ... e rapido demais
+CONST_FLOAT GROUND_FAR            100.0    // altura falsa sobre a agua (nunca pousa)
+
+
+// ---------------------------------------------------------------------------
+//  VARIAVEIS LOCAIS
+//
+//   crow[]  handle do corvo          (0 = vaga livre)
+//   state[]  STATE_* daquele corvo
+//   snd[]    stream de audio 3D ativo (asas voando / grasnado pousado)
+//
+//  TIMERA e TIMERB sao as variaveis 32@ e 33@ do jogo: o motor soma o tempo
+//  de cada quadro nelas, entao servem de cronometro sem travar o script.
+// ---------------------------------------------------------------------------
+SCRIPT_START
+{
+LVAR_INT   crow[5]        // tamanho = MAX_CROWS (o gta3sc exige numero fixo)
+LVAR_INT   state[5]
+LVAR_INT   snd[5]
+LVAR_INT   slot, h, player, st, tmp, found
+LVAR_FLOAT px, py, pz, fx, fy, fz, ang, gz, rnd, alt
+
+
+// ---------------------------------------------------------------------------
+//  1) CARREGA O MODELO E A ANIMACAO
+// ---------------------------------------------------------------------------
+cv_load:
+WAIT 0
+LOAD_SPECIAL_CHARACTER CROW_SLOT CROW01
+REQUEST_ANIMATION "RAVEN"
+timera = 0
+
+cv_load_wait:
+WAIT 0
+IF HAS_SPECIAL_CHARACTER_LOADED CROW_SLOT
+AND HAS_ANIMATION_LOADED "RAVEN"
+    GOTO cv_ready
+ENDIF
+IF timera < LOAD_TIMEOUT
+    GOTO cv_load_wait
+ENDIF
+PRINT_STRING_NOW "~r~CORVOS~w~: CROW01.dff e raven.ifp nao estao no gta3.img (veja o LEIAME)" 9000
+TERMINATE_THIS_CUSTOM_SCRIPT
+
+
+// ---------------------------------------------------------------------------
+//  2) ZERA A TABELA E ENTRA NO LOOP
+// ---------------------------------------------------------------------------
+cv_ready:
+slot = 0
+WHILE slot < MAX_CROWS
+    crow[slot] = 0
+    state[slot] = STATE_FREE
+    snd[slot] = 0
+    slot += 1
+ENDWHILE
+timera = SPAWN_DELAY
+timerb = RESPAWN_WAIT
+
+
+// ---------------------------------------------------------------------------
+//  3) LOOP PRINCIPAL
+// ---------------------------------------------------------------------------
+cv_main:
+WAIT 0
+IF NOT IS_PLAYER_PLAYING 0
+    GOTO cv_main
+ENDIF
+GET_PLAYER_CHAR 0 player
+
+// ---- roda a cabeca de cada corvo vivo --------------------------------
+slot = 0
+WHILE slot < MAX_CROWS
+    GOSUB cv_tick
+    slot += 1
+ENDWHILE
+
+// ---- cabe um corvo novo? ---------------------------------------------
+GOSUB cv_free_slot
+IF slot < 0
+    GOTO cv_main
+ENDIF
+IF timera < SPAWN_DELAY
+    GOTO cv_main
+ENDIF
+IF timerb < RESPAWN_WAIT
+    GOTO cv_main
+ENDIF
+// garante que o jogo nao descarregou o ator especial / a animacao
+GOSUB cv_keep_loaded
+GOSUB cv_scan
+GOTO cv_main
+
+
+// ---------------------------------------------------------------------------
+//  cv_free_slot   ->  slot = primeira vaga livre, ou -1
+// ---------------------------------------------------------------------------
+cv_free_slot:
+slot = -1
+tmp = 0
+WHILE tmp < MAX_CROWS
+    IF crow[tmp] = 0
+        slot = tmp
+        BREAK
+    ENDIF
+    tmp += 1
+ENDWHILE
+RETURN
+
+
+// ---------------------------------------------------------------------------
+//  cv_keep_loaded   o jogo pode soltar o ator especial se ninguem usar
+// ---------------------------------------------------------------------------
+cv_keep_loaded:
+IF HAS_SPECIAL_CHARACTER_LOADED CROW_SLOT
+AND HAS_ANIMATION_LOADED "RAVEN"
+    RETURN
+ENDIF
+LOAD_SPECIAL_CHARACTER CROW_SLOT CROW01
+REQUEST_ANIMATION "RAVEN"
+timera = 0
+cv_keep_wait:
+WAIT 0
+IF HAS_SPECIAL_CHARACTER_LOADED CROW_SLOT
+AND HAS_ANIMATION_LOADED "RAVEN"
+    RETURN
+ENDIF
+IF timera < LOAD_TIMEOUT
+    GOTO cv_keep_wait
+ENDIF
+RETURN
+
+
+// ---------------------------------------------------------------------------
+//  cv_tick   um passo do corvo da vaga "slot"
+// ---------------------------------------------------------------------------
+cv_tick:
+h = crow[slot]
+IF h = 0
+    RETURN
+ENDIF
+GET_CHAR_HEALTH h tmp
+IF tmp <= 0
+    GOSUB cv_die
+    RETURN
+ENDIF
+IF NOT LOCATE_CHAR_ANY_MEANS_CHAR_3D player h DESPAWN_DIST DESPAWN_DIST DESPAWN_DIST 0
+    GOSUB cv_release
+    RETURN
+ENDIF
+st = state[slot]
+IF st = STATE_PERCH
+    GOSUB cv_perch
+ENDIF
+IF st = STATE_FLY
+    GOSUB cv_fly
+ENDIF
+RETURN
+
+
+// ---------------------------------------------------------------------------
+//  cv_perch   pousado: fica de olho e levanta voo quando algo assusta
+// ---------------------------------------------------------------------------
+cv_perch:
+IF LOCATE_CHAR_ANY_MEANS_CHAR_2D player h PLAYER_ALERT_DIST PLAYER_ALERT_DIST 0
+    GOTO cv_takeoff
+ENDIF
+IF HAS_CHAR_BEEN_DAMAGED_BY_CHAR h player
+    GOTO cv_takeoff
+ENDIF
+IF IS_CHAR_IN_WATER h
+    GOTO cv_takeoff
+ENDIF
+
+// pedestres por perto (outros corvos nao contam)
+GET_CHAR_COORDINATES h px py pz
+st = 0
+tmp = 0
+cv_perch_peds:
+GET_RANDOM_CHAR_IN_SPHERE_NO_SAVE_RECURSIVE px py pz PED_ALERT_DIST tmp 1 found
+IF found = 0
+    GOTO cv_perch_fire
+ENDIF
+IF NOT IS_CHAR_MODEL found CROW_MODEL
+    GOTO cv_takeoff
+ENDIF
+tmp = 1
+st += 1
+IF st < PED_SCAN_TRIES
+    GOTO cv_perch_peds
+ENDIF
+
+// fogo por perto
+cv_perch_fire:
+GET_NUMBER_OF_FIRES_IN_RANGE px py pz FIRE_ALERT_DIST tmp
+IF tmp > 0
+    GOTO cv_takeoff
+ENDIF
+
+// tiro passando de raspão
+GET_CHAR_HIGHEST_PRIORITY_EVENT h tmp
+IF tmp = EVENT_WHIZZED
+    GOTO cv_takeoff
+ENDIF
+
+// carro rapido por perto
+GET_RANDOM_CAR_IN_SPHERE_NO_SAVE_RECURSIVE px py pz CAR_ALERT_DIST 0 0 found
+IF NOT found = 0
+    GET_CAR_SPEED found rnd
+    IF rnd > CAR_ALERT_SPEED
+        GOTO cv_takeoff
+    ENDIF
+ENDIF
+RETURN
+
+
+// ---------------------------------------------------------------------------
+//  cv_takeoff
+// ---------------------------------------------------------------------------
+cv_takeoff:
+TASK_PLAY_ANIM_NON_INTERRUPTABLE h "FLY_raven" "RAVEN" 4.0 TRUE TRUE TRUE TRUE -1
+CLEAR_CHAR_LAST_WEAPON_DAMAGE h
+CLEAR_CHAR_LAST_DAMAGE_ENTITY h
+GOSUB cv_audio_wings
+state[slot] = STATE_FLY
+SET_CHAR_COLLISION h FALSE
+SET_CHAR_VELOCITY h 0.0 0.0 CLIMB_SPEED
+GET_CHAR_HEADING h ang
+SET_CHAR_ROTATION h 10.0 0.0 ang
+RETURN
+
+
+// ---------------------------------------------------------------------------
+//  cv_fly   voando: procura altitude, desvia de parede, pousa
+// ---------------------------------------------------------------------------
+cv_fly:
+GET_CHAR_HEADING h ang
+GET_CHAR_HEIGHT_ABOVE_GROUND h gz
+IF IS_CHAR_IN_WATER h
+    gz = GROUND_FAR
+ENDIF
+IF gz <= LAND_HEIGHT
+    GOTO cv_land
+ENDIF
+
+// altitude alvo (varia de leve para o voo nao ficar mecanico)
+GENERATE_RANDOM_FLOAT_IN_RANGE -2.5 2.5 rnd
+alt = CRUISE_ALT + rnd
+IF gz >= alt
+    fz = 0.0                          // ja esta na altura: voo reto
+ELSE
+    IF gz <= LOW_HEIGHT
+        fz = SINK_SPEED                // perto do chao: plana para pousar
+    ELSE
+        fz = CLIMB_SPEED
+    ENDIF
+ENDIF
+
+// o que tem na frente?
+GET_OFFSET_FROM_CHAR_IN_WORLD_COORDS h 0.0 0.0 0.0 px py pz
+GET_OFFSET_FROM_CHAR_IN_WORLD_COORDS h 0.0 SIGHT_DIST 0.0 fx fy rnd
+IF NOT IS_LINE_OF_SIGHT_CLEAR px py pz fx fy rnd 1 1 0 1 0
+    GENERATE_RANDOM_FLOAT_IN_RANGE 4.0 7.0 rnd   // obstaculo: curva firme
+ELSE
+    GENERATE_RANDOM_FLOAT_IN_RANGE -1.5 1.5 rnd  // ceu livre: curva de leve
+ENDIF
+ang += rnd
+SET_CHAR_ROTATION h 10.0 0.0 ang
+
+// velocidade: FLY_SPEED para a frente e "fz" para cima/baixo
+GET_OFFSET_FROM_CHAR_IN_WORLD_COORDS h 0.0 FLY_SPEED 0.0 fx fy rnd
+fx -= px
+fy -= py
+SET_CHAR_VELOCITY h fx fy fz
+RETURN
+
+
+// ---------------------------------------------------------------------------
+//  cv_land   pousa na altura de pouso
+// ---------------------------------------------------------------------------
+cv_land:
+TASK_PLAY_ANIM_NON_INTERRUPTABLE h "IDLE_raven" "RAVEN" 4.0 TRUE TRUE TRUE TRUE -1
+SET_CHAR_VELOCITY h 0.0 0.0 0.0
+SET_CHAR_COLLISION h TRUE
+GET_CHAR_HEADING h ang
+ang += 180.0                          // vira de frente para o lado oposto
+SET_CHAR_HEADING h ang
+state[slot] = STATE_PERCH
+GOSUB cv_audio_caw
+RETURN
+
+
+// ---------------------------------------------------------------------------
+//  cv_die   cai com "DIE_fly" e, encostando no chao, toca "DIE_raven"
+// ---------------------------------------------------------------------------
+cv_die:
+IF state[slot] = STATE_DIE
+    GOTO cv_die_ground
+ENDIF
+state[slot] = STATE_DIE
+SET_CHAR_COLLISION h TRUE
+GOSUB cv_audio_off
+TASK_PLAY_ANIM_NON_INTERRUPTABLE h "DIE_fly" "RAVEN" 4.0 TRUE TRUE TRUE TRUE -1
+cv_die_ground:
+GET_CHAR_HEIGHT_ABOVE_GROUND h gz
+IF gz > LAND_HEIGHT
+    RETURN
+ENDIF
+TASK_DIE_NAMED_ANIM h "DIE_raven" "RAVEN" 4.0 0
+GOSUB cv_release
+RETURN
+
+
+// ---------------------------------------------------------------------------
+//  cv_release   libera a vaga, o audio e o corpo
+// ---------------------------------------------------------------------------
+cv_release:
+SET_CHAR_COLLISION h TRUE
+GOSUB cv_audio_off
+MARK_CHAR_AS_NO_LONGER_NEEDED h
+crow[slot] = 0
+state[slot] = STATE_FREE
+snd[slot] = 0
+timerb = 0
+RETURN
+
+
+// ---------------------------------------------------------------------------
+//  AUDIO 3D   (0AC1 carrega, 0AC0 poe em loop, 0AAD toca/para, 0AAE libera,
+//              0AC4 amarra o som no corpo do corvo)
+// ---------------------------------------------------------------------------
+cv_audio_off:
+IF NOT snd[slot] = 0
+    SET_AUDIO_STREAM_STATE snd[slot] AUDIO_STOP
+    REMOVE_AUDIO_STREAM snd[slot]
+    snd[slot] = 0
+ENDIF
+RETURN
+
+cv_audio_wings:
+GOSUB cv_audio_off
+LOAD_3D_AUDIO_STREAM "CLEO/SOUNDS/WINGS.mp3" tmp
+IF NOT tmp = 0
+    snd[slot] = tmp
+    SET_AUDIO_STREAM_LOOPED tmp TRUE
+    SET_AUDIO_STREAM_STATE tmp AUDIO_PLAY
+    SET_PLAY_3D_AUDIO_STREAM_AT_CHAR tmp h
+ENDIF
+RETURN
+
+cv_audio_caw:
+GOSUB cv_audio_off
+LOAD_3D_AUDIO_STREAM "CLEO/SOUNDS/CROW.mp3" tmp
+IF NOT tmp = 0
+    snd[slot] = tmp
+    SET_AUDIO_STREAM_LOOPED tmp TRUE
+    SET_AUDIO_STREAM_STATE tmp AUDIO_PLAY
+    SET_PLAY_3D_AUDIO_STREAM_AT_CHAR tmp h
+ENDIF
+RETURN
+
+
+// ---------------------------------------------------------------------------
+//  cv_spawn   cria o corvo na vaga "slot"
+//  entrada: px py pz = posicao do poleiro, ang = direcao
+// ---------------------------------------------------------------------------
+cv_spawn:
+IF LOCATE_CHAR_ANY_MEANS_3D player px py pz SPAWN_MIN_DIST SPAWN_MIN_DIST SPAWN_MIN_DIST 0
+    RETURN                            // nasceria em cima do jogador
+ENDIF
+CREATE_CHAR PEDTYPE_CIVMALE CROW_MODEL px py pz h
+SET_CHAR_HEALTH h CROW_HEALTH
+SET_CHAR_HEADING h ang
+crow[slot] = h
+state[slot] = STATE_PERCH
+snd[slot] = 0
+TASK_PLAY_ANIM_NON_INTERRUPTABLE h "IDLE_raven" "RAVEN" 4.0 TRUE TRUE TRUE TRUE -1
+GOSUB cv_audio_caw
+timera = 0
+RETURN
+
+
+// ---------------------------------------------------------------------------
+//  cv_scan   procura um poleiro visivel perto do jogador
+//
+//  Cada area tem um gatilho (o jogador precisa estar dentro da esfera, e nas
+//  areas 1 a 4 fora da esfera de exclusao) e ate 5 poleiros autorais.
+//  O poleiro so e usado se estiver na tela (00C2), como no mod original.
+//  Estes 13 gatilhos e 64 pontos vieram dos cinco scripts originais.
+// ---------------------------------------------------------------------------
+cv_scan:
+{{PERCH_TABLE}}
+cv_scan_end:
+RETURN
+
+}
+SCRIPT_END
