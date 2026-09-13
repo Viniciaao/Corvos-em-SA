@@ -1,4 +1,4 @@
-# Corvos do GTA V — versão 2.3 (reescrita)
+# Corvos do GTA V — versão 2.4 (reescrita)
 
 Reescrita do mod **Corvos do GTA V** (original de *Dakurlz*): corvos do GTA V
 pousados pelo mapa de San Andreas que levantam voo quando o jogador (ou uma
@@ -7,6 +7,11 @@ ameaça) chega perto.
 Esta versão junta os cinco scripts originais (`CROW1` … `CROW5`) em **um único
 script**, corrige os erros de lógica do original e usa o áudio 3D do CLEO.
 
+* **2.4** — os corvos não reaparecem mais logo depois de irem embora: depois que
+  os corvos de um lugar vão embora, **nenhum outro nasce até o jogador se afastar
+  200 m dali** (a área de ativação passou de 100 m para 200 m; no mod original o
+  script esperava 10 s e recomeçava — e o corvo aparecia nas costas do jogador).
+  Ver a seção 8 do relatório.
 * **2.3** — voo corrigido de vez (com a colisão desligada o motor do jogo não
   move o ped: o corvo ficava parado no ar batendo as asas); o corvo escolhe o
   poleiro mais perto que esteja livre, **de preferência fora da câmera** e nunca

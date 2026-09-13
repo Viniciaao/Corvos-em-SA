@@ -1,5 +1,5 @@
 // ===========================================================================
-//  CORVOS DO GTA V  -  versao 2.3 (reescrito, corrigido e otimizado)
+//  CORVOS DO GTA V  -  versao 2.4 (reescrito, corrigido e otimizado)
 //
 //  Mod original: Dakurlz
 //  Creditos originais: JuniorDjjr (blog), MixMods, BrModStudio
@@ -24,6 +24,11 @@
 //                  saida: build/CORVOS.cs
 //
 //  HISTORICO
+//   2.4 - os corvos nao reaparecem mais logo depois de irem embora: quando um
+//         corvo sai de uma regiao, ela fica "gasta" e nenhum outro corvo nasce
+//         ate o jogador se afastar 200 m dela (o original esperava 10 s e
+//         comecava tudo de novo, e o corvo nascia nas costas do jogador). A
+//         area de ativacao passou de 100 m para 200 m
 //   2.3 - voo consertado (com a colisao desligada o GTA nao move o ped: o
 //         corvo ficava parado no ar batendo as asas), escolha dos poleiros
 //         (o mais perto do jogador, de preferencia escondido e sempre a mais
@@ -67,6 +72,7 @@ CONST_INT   CAW_DEFAULT_SEC        12      // "grasnado_a_cada" padrao (segundos
 
 CONST_FLOAT DESPAWN_DIST          100.0    // distancia em que o corvo "esquece" o jogador
 CONST_FLOAT SPAWN_MIN_DIST        25.0     // nao nasce corvo mais perto que isso
+CONST_FLOAT SPAWN_MAX_DIST        90.0     // nem mais longe (senao ja seria descartado por DESPAWN_DIST)
 CONST_FLOAT SND_RANGE             30.0     // o som so toca a menos disso do jogador
 CONST_FLOAT FLY_SPEED             10.0     // velocidade de cruzeiro
 CONST_FLOAT CLIMB_SPEED           10.0     // velocidade de subida
@@ -95,6 +101,11 @@ CONST_INT   ADDR_WEATHER_TYPE     0xC8131C
 //   crow[]  handle do corvo          (0 = vaga livre)
 //   state[]  STATE_* daquele corvo
 //   snd[]    stream de audio 3D ativo (asas voando / grasnado pousado)
+//   lockarea area de onde os corvos foram embora; enquanto ela nao for 0,
+//            nenhum corvo nasce (a varredura nem comeca). Volta a 0 quando o
+//            jogador sai da esfera daquela area (200 m). E' isso que impede o
+//            corvo de reaparecer logo depois de ir embora -- o mod original
+//            esperava 10 s e comecava tudo de novo.
 //
 //  TIMERA e TIMERB sao as variaveis 32@ e 33@ do jogo: o motor soma o tempo
 //  de cada quadro nelas, entao servem de cronometro sem travar o script.
@@ -104,8 +115,8 @@ SCRIPT_START
 LVAR_INT   crow[5]        // tamanho = MAX_CROWS (o gta3sc exige numero fixo)
 LVAR_INT   state[5]
 LVAR_INT   snd[5]
+LVAR_INT   lockarea       // area (1..13) que ja "gastou" o corvo desta visita
 LVAR_INT   slot, h, player, st, tmp, found
-LVAR_INT   cfg_max         // numero de corvos (vem do INI)
 LVAR_INT   cfg_misc        // bits 0/1 = nasce na chuva / na tempestade de areia
                            // (bits 2+) / 4 = segundos entre grasnados
 LVAR_FLOAT px, py, pz, fx, fy, fz, ang, gz, rnd
@@ -145,6 +156,7 @@ WHILE slot < MAX_CROWS
     snd[slot] = 0
     slot += 1
 ENDWHILE
+lockarea = 0
 // cronometros "grandes" de proposito: o primeiro corvo nao precisa esperar
 timera = 60000
 timerb = 60000
@@ -162,7 +174,7 @@ GET_PLAYER_CHAR 0 player
 
 // ---- roda a cabeca de cada corvo vivo --------------------------------
 slot = 0
-WHILE slot < cfg_max
+WHILE slot < MAX_CROWS
     GOSUB cv_tick
     slot += 1
 ENDWHILE
@@ -184,9 +196,19 @@ GOTO cv_main
 //  cv_free_slot   ->  slot = primeira vaga livre, ou -1
 // ---------------------------------------------------------------------------
 cv_free_slot:
+// "numero_de_corvos" do INI: quantas vagas podem ser usadas (1..MAX_CROWS).
+// Vem para "found" porque o script ja usa as 32 variaveis locais do jogo e
+// nao sobra nenhuma para guardar um cfg_max separado.
 slot = -1
 tmp = 0
-WHILE tmp < cfg_max
+READ_INT_FROM_INI_FILE "CLEO/CORVOS.ini" "corvos" "numero_de_corvos" found
+IF found < 1
+    found = MAX_CROWS
+ENDIF
+IF found > MAX_CROWS
+    found = MAX_CROWS
+ENDIF
+WHILE tmp < found
     IF crow[tmp] = 0
         slot = tmp
         BREAK
@@ -233,19 +255,13 @@ IF DOES_FILE_EXIST "CLEO/CORVOS.ini"
 ENDIF
 // a pasta do jogo esta protegida e o arquivo nao pode ser criado: segue com os
 // valores padrao do proprio script
-cfg_max = MAX_CROWS
 cfg_misc = CAW_DEFAULT_SEC
 cfg_misc *= 4
 RETURN
 
 cv_ini_read:
-READ_INT_FROM_INI_FILE "CLEO/CORVOS.ini" "corvos" "numero_de_corvos" cfg_max
-IF cfg_max < 1
-    cfg_max = MAX_CROWS              // arquivo sem o valor: usa o padrao
-ENDIF
-IF cfg_max > MAX_CROWS
-    cfg_max = MAX_CROWS
-ENDIF
+// "numero_de_corvos" nao e' lido aqui: o cv_free_slot le direto do INI (a
+// validacao de 1..MAX_CROWS esta la)
 // cfg_misc = bit0 (nasce na chuva) + bit1 (nasce na tempestade de areia)
 //            + 4 * segundos entre grasnados
 cfg_misc = 0
@@ -289,7 +305,7 @@ IF DOES_CHAR_EXIST h
 ENDIF
 cv_busy_next:
 tmp += 1
-IF tmp < cfg_max
+IF tmp < MAX_CROWS
     GOTO cv_busy_loop
 ENDIF
 cv_busy_done:
@@ -318,6 +334,7 @@ IF NOT LOCATE_CHAR_ANY_MEANS_CHAR_3D player h DESPAWN_DIST DESPAWN_DIST DESPAWN_
     // estiver olhando (camera de noclip, por exemplo) o corvo continua vivo
     GET_CHAR_COORDINATES h px py pz
     IF NOT IS_POINT_ON_SCREEN px py pz 5.0
+        GOSUB cv_area_lock_crow   // os corvos desta area foram embora: gasta a area
         st = 1                    // 1 = apaga o corpo (nao vira npc comum)
         GOSUB cv_release
         RETURN
@@ -427,6 +444,7 @@ SET_CHAR_COLLISION h TRUE
 SET_CHAR_VELOCITY h 0.0 0.0 CLIMB_SPEED
 GET_CHAR_HEADING h ang
 SET_CHAR_ROTATION h 10.0 0.0 ang
+GOSUB cv_area_lock_crow             // levantou voo: a area fica gasta ate o jogador sair
 RETURN
 
 
@@ -558,6 +576,7 @@ RETURN
 //             nele, entao so limpa a vaga e o audio
 cv_forget:
 GOSUB cv_audio_off
+GOSUB cv_area_lock_crow             // o corvo desta area foi embora
 crow[slot] = 0
 state[slot] = STATE_FREE
 snd[slot] = 0
@@ -720,6 +739,15 @@ RETURN
 //  Estes 13 gatilhos e 64 pontos vieram dos cinco scripts originais.
 // ---------------------------------------------------------------------------
 cv_scan:
+// os corvos daqui ja foram embora? entao nada nasce enquanto o jogador nao
+// sair da area de ativacao (200 m) -- ver cv_area_unlock
+IF NOT lockarea = 0
+    GOSUB cv_area_unlock
+    IF NOT lockarea = 0
+        RETURN
+    ENDIF
+ENDIF
+
 // clima: por padrao o corvo nao nasce na chuva nem na tempestade de areia
 // (o CLEO/CORVOS.ini manda; o tipo de clima e lido da memoria do GTA SA 1.0)
 //

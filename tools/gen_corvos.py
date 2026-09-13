@@ -38,6 +38,12 @@ FILES = ['CROW%d.txt' % i for i in range(1, 6)]
 STRICT_AREAS = (5, 6, 7, 8, 9, 10, 11, 12)
 STRICT_DIST = 300.0
 
+# Raio da "area de ativacao" dos corvos. No mod original era 100 m; a pedido do
+# jogador passou a ser 200 m: e' o raio em que os corvos podem nascer e,
+# principalmente, a distancia que o jogador precisa se afastar para a area
+# "liberar" de novo depois que os corvos vao embora.
+AREA_RADIUS_MIN = 200.0
+
 # ---------------------------------------------------------------------------
 #  Ajustes manuais de poleiros (pedidos nos testes em jogo).
 #
@@ -109,7 +115,8 @@ def collect():
         if not ins:
             continue
         cen = [round(statistics.mean(c[i] for c in ins), 4) for i in range(3)]
-        rad = max(c[3] for c in ins)
+        rad_orig = max(c[3] for c in ins)
+        rad = max(rad_orig, AREA_RADIUS_MIN)
         ex = next((s[n]['not_in'] for s in scripts.values() if n in s and s[n]['not_in']), None)
         brutos = []
         for name, s in scripts.items():
@@ -146,7 +153,8 @@ def collect():
                 continue
             seen.add(key)
             uniq.append(p)
-        areas.append(dict(id=n, center=cen, radius=rad, exclude=ex, perches=uniq))
+        areas.append(dict(id=n, center=cen, radius=rad, radius_orig=rad_orig,
+                          exclude=ex, perches=uniq))
     return areas
 
 
@@ -156,12 +164,32 @@ def perch_table(areas):
     Em cada area o script escolhe UM poleiro por quadro:
 
       * o mais perto do jogador que esteja livre (nenhum corvo a menos de
-        PERCH_MIN_DIST dele) e a pelo menos SPAWN_MIN_DIST do jogador;
+        PERCH_MIN_DIST dele) e entre SPAWN_MIN_DIST e SPAWN_MAX_DIST do jogador;
       * um poleiro que esteja na tela leva uma penalidade de 2x na distancia,
         entao o corvo nasce escondido sempre que houver opcao -- assim ele ja
         aparece pousado, sem dar para ver o bicho surgindo do nada;
       * a escolha do mais perto (em vez do primeiro da lista) faz os corvos se
         espalharem pelos poleiros da area em vez de nascerem sempre no mesmo.
+
+    Depois que os corvos de um lugar vao embora, nenhum outro nasce ate o
+    jogador sair da area de ativacao (200 m). Quem cuida disso e' a variavel
+    "lockarea", que guarda a area de onde os corvos sairam:
+
+      * cv_area_lock_crow  (chamada quando um corvo vai embora) descobre a area
+        pela posicao do corvo e grava o numero dela em lockarea;
+      * cv_area_unlock  (chamada no comeco de cada varredura) zera lockarea
+        quando o jogador ja saiu da esfera daquela area;
+      * enquanto lockarea nao for 0, a varredura nem comeca.
+
+    E' uma trava global (e nao uma por area) de proposito: as areas 3 e 13
+    ficam a 236 m uma da outra e se sobrepoem com o raio de 200 m, entao uma
+    trava "da area" deixaria a area vizinha solta no meio da sobreposicao. Com
+    a trava global, o jogador precisa sair da regiao de onde os corvos foram
+    embora -- que e' exatamente a regra pedida.
+
+    Como o script usa as 32 variaveis locais do jogo, a trava e' uma variavel
+    so, e a area do corvo que vai embora e' descoberta pela posicao dele (por
+    isso ela nao vive em cada vaga).
 
     Variaveis usadas aqui (todas ja existentes no script): px/py/pz/ang = o
     poleiro candidato, fx/fy/fz = posicao do jogador, gz = distancia do
@@ -183,8 +211,9 @@ def perch_table(areas):
                         len(a['perches'])))
         lines.append('%s:' % area_label)
         cen, rad = a['center'], a['radius']
+        r = fmt(rad)
         lines.append('IF LOCATE_CHAR_ANY_MEANS_3D player %s %s %s %s %s %s 0'
-                     % (fmt(cen[0]), fmt(cen[1]), fmt(cen[2]), fmt(rad), fmt(rad), fmt(rad)))
+                     % (fmt(cen[0]), fmt(cen[1]), fmt(cen[2]), r, r, r))
         if a['exclude']:
             e = a['exclude']
             lines.append('AND NOT LOCATE_CHAR_ANY_MEANS_3D player %s %s %s %s %s %s 0'
@@ -207,6 +236,7 @@ def perch_table(areas):
             lines.append('    GET_DISTANCE_BETWEEN_COORDS_3D %s %s %s fx fy fz gz'
                          % (fmt(p['x']), fmt(p['y']), fmt(p['z'])))
             lines.append('    IF gz >= SPAWN_MIN_DIST')
+            lines.append('    AND gz <= SPAWN_MAX_DIST')
             lines.append('        IF IS_POINT_ON_SCREEN %s %s %s %s'
                          % (fmt(p['x']), fmt(p['y']), fmt(p['z']), fmt(p['vis_r'])))
             lines.append('            gz *= 2.0            // na tela: perde para um escondido')
@@ -230,6 +260,48 @@ def perch_table(areas):
         lines.append('GOSUB cv_spawn')
         lines.append('RETURN                          // um corvo por quadro, no maximo')
     lines.append('')
+    lines.append('// ---------------------------------------------------------------------------')
+    lines.append('//  cv_area_lock_crow   guarda em lockarea a area de onde o corvo (h) saiu')
+    lines.append('//')
+    lines.append('//  Chamada quando o corvo vai embora (levanta voo, e solto longe, some).')
+    lines.append('//  A area e descoberta pela posicao do corvo: assim nao precisa')
+    lines.append('//  guardar a area de cada corvo (o script usa as 32 variaveis do jogo).')
+    lines.append('//  A partir dai nenhum corvo nasce ate o jogador sair daquela area.')
+    lines.append('// ---------------------------------------------------------------------------')
+    lines.append('cv_area_lock_crow:')
+    lines.append('IF NOT DOES_CHAR_EXIST h')
+    lines.append('    RETURN')
+    lines.append('ENDIF')
+    for a in areas:
+        cen, rad = a['center'], a['radius']
+        r = fmt(rad)
+        lines.append('IF LOCATE_CHAR_ANY_MEANS_3D h %s %s %s %s %s %s 0'
+                     % (fmt(cen[0]), fmt(cen[1]), fmt(cen[2]), r, r, r))
+        lines.append('    lockarea = %d' % a['id'])
+        lines.append('    RETURN')
+        lines.append('ENDIF')
+    lines.append('RETURN')
+    lines.append('')
+    lines.append('// ---------------------------------------------------------------------------')
+    lines.append('//  cv_area_unlock   zera a trava quando o jogador ja saiu da area')
+    lines.append('//')
+    lines.append('//  O raio conferido e o da area de ativacao (200 m): saindo dai, os')
+    lines.append('//  corvos daquele lugar podem voltar numa proxima visita.')
+    lines.append('// ---------------------------------------------------------------------------')
+    lines.append('cv_area_unlock:')
+    for a in areas:
+        cen, rad = a['center'], a['radius']
+        r = fmt(rad)
+        lines.append('IF lockarea = %d' % a['id'])
+        lines.append('    IF NOT LOCATE_CHAR_ANY_MEANS_3D player %s %s %s %s %s %s 0'
+                     % (fmt(cen[0]), fmt(cen[1]), fmt(cen[2]), r, r, r))
+        lines.append('        lockarea = 0')
+        lines.append('    ENDIF')
+        lines.append('    RETURN')
+        lines.append('ENDIF')
+    lines.append('lockarea = 0                    // area desconhecida: libera logo')
+    lines.append('RETURN')
+    lines.append('')
     return '\n'.join(lines)
 
 
@@ -240,13 +312,15 @@ def main():
     with open(OUT_CSV, 'w', newline='', encoding='utf-8') as fh:
         w = csv.writer(fh, delimiter=';')
         w.writerow(['area', 'gatilho_x', 'gatilho_y', 'gatilho_z', 'gatilho_raio',
+                    'gatilho_raio_original',
                     'exclusao_x', 'exclusao_y', 'exclusao_z', 'exclusao_raio',
                     'poleiro_x', 'poleiro_y', 'poleiro_z', 'poleiro_angulo',
                     'raio_visao', 'origem'])
         for a in areas:
             ex = a['exclude'] or ['', '', '', '']
             for p in a['perches']:
-                w.writerow([a['id'], fmt(a['center'][0]), fmt(a['center'][1]), fmt(a['center'][2]), fmt(a['radius'])]
+                w.writerow([a['id'], fmt(a['center'][0]), fmt(a['center'][1]), fmt(a['center'][2]),
+                            fmt(a['radius']), fmt(a['radius_orig'])]
                            + [fmt(v) if v != '' else '' for v in ex]
                            + [fmt(p['x']), fmt(p['y']), fmt(p['z']), fmt(p['angle']), fmt(p['vis_r']), p['src']])
 
@@ -266,13 +340,18 @@ def main():
     with open(OUT_MD, 'w', encoding='utf-8') as fh:
         fh.write('# Areas e poleiros do CORVOS.sc\n\n')
         fh.write('Extraido automaticamente dos cinco scripts originais (CROW1..CROW5).\n\n')
-        fh.write('| area | gatilho (x, y, z) | raio | exclusao | poleiros | origens |\n')
+        fh.write('O raio mostrado e o **raio efetivo** usado pelo script: no original era '
+                 '100 m e passou a ser %.0f m (area de ativacao e distancia que o jogador '
+                 'precisa se afastar para a area "liberar" de novo depois que os corvos '
+                 'vao embora).\n\n' % AREA_RADIUS_MIN)
+        fh.write('| area | gatilho (x, y, z) | raio (original) | exclusao | poleiros | origens |\n')
         fh.write('|---|---|---|---|---|---|\n')
         for a in areas:
             ex = a['exclude']
             exs = ('(%.1f, %.1f, %.1f) r%.0f' % (ex[0], ex[1], ex[2], ex[3])) if ex else '-'
-            fh.write('| %d | (%.1f, %.1f, %.1f) | %.0f | %s | %d | %s |\n'
-                     % (a['id'], a['center'][0], a['center'][1], a['center'][2], a['radius'],
+            fh.write('| %d | (%.1f, %.1f, %.1f) | %.0f (%.0f) | %s | %d | %s |\n'
+                     % (a['id'], a['center'][0], a['center'][1], a['center'][2],
+                        a['radius'], a['radius_orig'],
                         exs, len(a['perches']), ', '.join(p['src'] for p in a['perches'])))
         fh.write('\nTotal: %d poleiros em %d areas.\n' % (sum(len(a['perches']) for a in areas), len(areas)))
 

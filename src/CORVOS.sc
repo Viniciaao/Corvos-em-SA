@@ -1,5 +1,5 @@
 // ===========================================================================
-//  CORVOS DO GTA V  -  versao 2.3 (reescrito, corrigido e otimizado)
+//  CORVOS DO GTA V  -  versao 2.4 (reescrito, corrigido e otimizado)
 //
 //  Mod original: Dakurlz
 //  Creditos originais: JuniorDjjr (blog), MixMods, BrModStudio
@@ -24,6 +24,11 @@
 //                  saida: build/CORVOS.cs
 //
 //  HISTORICO
+//   2.4 - os corvos nao reaparecem mais logo depois de irem embora: quando um
+//         corvo sai de uma regiao, ela fica "gasta" e nenhum outro corvo nasce
+//         ate o jogador se afastar 200 m dela (o original esperava 10 s e
+//         comecava tudo de novo, e o corvo nascia nas costas do jogador). A
+//         area de ativacao passou de 100 m para 200 m
 //   2.3 - voo consertado (com a colisao desligada o GTA nao move o ped: o
 //         corvo ficava parado no ar batendo as asas), escolha dos poleiros
 //         (o mais perto do jogador, de preferencia escondido e sempre a mais
@@ -67,6 +72,7 @@ CONST_INT   CAW_DEFAULT_SEC        12      // "grasnado_a_cada" padrao (segundos
 
 CONST_FLOAT DESPAWN_DIST          100.0    // distancia em que o corvo "esquece" o jogador
 CONST_FLOAT SPAWN_MIN_DIST        25.0     // nao nasce corvo mais perto que isso
+CONST_FLOAT SPAWN_MAX_DIST        90.0     // nem mais longe (senao ja seria descartado por DESPAWN_DIST)
 CONST_FLOAT SND_RANGE             30.0     // o som so toca a menos disso do jogador
 CONST_FLOAT FLY_SPEED             10.0     // velocidade de cruzeiro
 CONST_FLOAT CLIMB_SPEED           10.0     // velocidade de subida
@@ -95,6 +101,11 @@ CONST_INT   ADDR_WEATHER_TYPE     0xC8131C
 //   crow[]  handle do corvo          (0 = vaga livre)
 //   state[]  STATE_* daquele corvo
 //   snd[]    stream de audio 3D ativo (asas voando / grasnado pousado)
+//   lockarea area de onde os corvos foram embora; enquanto ela nao for 0,
+//            nenhum corvo nasce (a varredura nem comeca). Volta a 0 quando o
+//            jogador sai da esfera daquela area (200 m). E' isso que impede o
+//            corvo de reaparecer logo depois de ir embora -- o mod original
+//            esperava 10 s e comecava tudo de novo.
 //
 //  TIMERA e TIMERB sao as variaveis 32@ e 33@ do jogo: o motor soma o tempo
 //  de cada quadro nelas, entao servem de cronometro sem travar o script.
@@ -104,8 +115,8 @@ SCRIPT_START
 LVAR_INT   crow[5]        // tamanho = MAX_CROWS (o gta3sc exige numero fixo)
 LVAR_INT   state[5]
 LVAR_INT   snd[5]
+LVAR_INT   lockarea       // area (1..13) que ja "gastou" o corvo desta visita
 LVAR_INT   slot, h, player, st, tmp, found
-LVAR_INT   cfg_max         // numero de corvos (vem do INI)
 LVAR_INT   cfg_misc        // bits 0/1 = nasce na chuva / na tempestade de areia
                            // (bits 2+) / 4 = segundos entre grasnados
 LVAR_FLOAT px, py, pz, fx, fy, fz, ang, gz, rnd
@@ -145,6 +156,7 @@ WHILE slot < MAX_CROWS
     snd[slot] = 0
     slot += 1
 ENDWHILE
+lockarea = 0
 // cronometros "grandes" de proposito: o primeiro corvo nao precisa esperar
 timera = 60000
 timerb = 60000
@@ -162,7 +174,7 @@ GET_PLAYER_CHAR 0 player
 
 // ---- roda a cabeca de cada corvo vivo --------------------------------
 slot = 0
-WHILE slot < cfg_max
+WHILE slot < MAX_CROWS
     GOSUB cv_tick
     slot += 1
 ENDWHILE
@@ -184,9 +196,19 @@ GOTO cv_main
 //  cv_free_slot   ->  slot = primeira vaga livre, ou -1
 // ---------------------------------------------------------------------------
 cv_free_slot:
+// "numero_de_corvos" do INI: quantas vagas podem ser usadas (1..MAX_CROWS).
+// Vem para "found" porque o script ja usa as 32 variaveis locais do jogo e
+// nao sobra nenhuma para guardar um cfg_max separado.
 slot = -1
 tmp = 0
-WHILE tmp < cfg_max
+READ_INT_FROM_INI_FILE "CLEO/CORVOS.ini" "corvos" "numero_de_corvos" found
+IF found < 1
+    found = MAX_CROWS
+ENDIF
+IF found > MAX_CROWS
+    found = MAX_CROWS
+ENDIF
+WHILE tmp < found
     IF crow[tmp] = 0
         slot = tmp
         BREAK
@@ -233,19 +255,13 @@ IF DOES_FILE_EXIST "CLEO/CORVOS.ini"
 ENDIF
 // a pasta do jogo esta protegida e o arquivo nao pode ser criado: segue com os
 // valores padrao do proprio script
-cfg_max = MAX_CROWS
 cfg_misc = CAW_DEFAULT_SEC
 cfg_misc *= 4
 RETURN
 
 cv_ini_read:
-READ_INT_FROM_INI_FILE "CLEO/CORVOS.ini" "corvos" "numero_de_corvos" cfg_max
-IF cfg_max < 1
-    cfg_max = MAX_CROWS              // arquivo sem o valor: usa o padrao
-ENDIF
-IF cfg_max > MAX_CROWS
-    cfg_max = MAX_CROWS
-ENDIF
+// "numero_de_corvos" nao e' lido aqui: o cv_free_slot le direto do INI (a
+// validacao de 1..MAX_CROWS esta la)
 // cfg_misc = bit0 (nasce na chuva) + bit1 (nasce na tempestade de areia)
 //            + 4 * segundos entre grasnados
 cfg_misc = 0
@@ -289,7 +305,7 @@ IF DOES_CHAR_EXIST h
 ENDIF
 cv_busy_next:
 tmp += 1
-IF tmp < cfg_max
+IF tmp < MAX_CROWS
     GOTO cv_busy_loop
 ENDIF
 cv_busy_done:
@@ -318,6 +334,7 @@ IF NOT LOCATE_CHAR_ANY_MEANS_CHAR_3D player h DESPAWN_DIST DESPAWN_DIST DESPAWN_
     // estiver olhando (camera de noclip, por exemplo) o corvo continua vivo
     GET_CHAR_COORDINATES h px py pz
     IF NOT IS_POINT_ON_SCREEN px py pz 5.0
+        GOSUB cv_area_lock_crow   // os corvos desta area foram embora: gasta a area
         st = 1                    // 1 = apaga o corpo (nao vira npc comum)
         GOSUB cv_release
         RETURN
@@ -427,6 +444,7 @@ SET_CHAR_COLLISION h TRUE
 SET_CHAR_VELOCITY h 0.0 0.0 CLIMB_SPEED
 GET_CHAR_HEADING h ang
 SET_CHAR_ROTATION h 10.0 0.0 ang
+GOSUB cv_area_lock_crow             // levantou voo: a area fica gasta ate o jogador sair
 RETURN
 
 
@@ -558,6 +576,7 @@ RETURN
 //             nele, entao so limpa a vaga e o audio
 cv_forget:
 GOSUB cv_audio_off
+GOSUB cv_area_lock_crow             // o corvo desta area foi embora
 crow[slot] = 0
 state[slot] = STATE_FREE
 snd[slot] = 0
@@ -720,6 +739,15 @@ RETURN
 //  Estes 13 gatilhos e 64 pontos vieram dos cinco scripts originais.
 // ---------------------------------------------------------------------------
 cv_scan:
+// os corvos daqui ja foram embora? entao nada nasce enquanto o jogador nao
+// sair da area de ativacao (200 m) -- ver cv_area_unlock
+IF NOT lockarea = 0
+    GOSUB cv_area_unlock
+    IF NOT lockarea = 0
+        RETURN
+    ENDIF
+ENDIF
+
 // clima: por padrao o corvo nao nasce na chuva nem na tempestade de areia
 // (o CLEO/CORVOS.ini manda; o tipo de clima e lido da memoria do GTA SA 1.0)
 //
@@ -753,9 +781,9 @@ ENDIF
 // Nao edite a mao: mexa em tools/corvos_logic.sc.txt e rode o gerador.
 // 13 areas, 64 poleiros.
 
-// ---- AREA 01   gatilho (-1464.8, -1558.3, 101.8) raio 100   5 poleiro(s)
+// ---- AREA 01   gatilho (-1464.8, -1558.3, 101.8) raio 200   5 poleiro(s)
 cv_area_01:
-IF LOCATE_CHAR_ANY_MEANS_3D player -1464.7968 -1558.324 101.7578 100.0 100.0 100.0 0
+IF LOCATE_CHAR_ANY_MEANS_3D player -1464.7968 -1558.324 101.7578 200.0 200.0 200.0 0
 AND NOT LOCATE_CHAR_ANY_MEANS_3D player -1465.1469 -1551.7413 101.7578 10.0 10.0 10.0 0
     GOTO cv_area_01_sel
 ENDIF
@@ -772,6 +800,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -1466.8788 -1555.0344 101.7578 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -1466.8788 -1555.0344 101.7578 10.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -789,6 +818,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -1464.7902 -1550.6583 101.7578 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -1464.7902 -1550.6583 101.7578 20.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -806,6 +836,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -1466.9965 -1554.317 101.7578 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -1466.9965 -1554.317 101.7578 20.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -823,6 +854,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -1469.8451 -1553.5935 102.1705 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -1469.8451 -1553.5935 102.1705 20.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -840,6 +872,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -1466.8971 -1551.9209 103.5408 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -1466.8971 -1551.9209 103.5408 20.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -885,9 +918,9 @@ ENDIF
 GOSUB cv_spawn
 RETURN                          // um corvo por quadro, no maximo
 
-// ---- AREA 02   gatilho (-1055.8, -1184.1, 129.2) raio 100   5 poleiro(s)
+// ---- AREA 02   gatilho (-1055.8, -1184.1, 129.2) raio 200   5 poleiro(s)
 cv_area_02:
-IF LOCATE_CHAR_ANY_MEANS_3D player -1055.7739 -1184.0836 129.1555 100.0 100.0 100.0 0
+IF LOCATE_CHAR_ANY_MEANS_3D player -1055.7739 -1184.0836 129.1555 200.0 200.0 200.0 0
 AND NOT LOCATE_CHAR_ANY_MEANS_3D player -1060.0992 -1182.5345 129.2187 30.0 30.0 30.0 0
     GOTO cv_area_02_sel
 ENDIF
@@ -904,6 +937,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -1064.9078 -1157.7363 131.3952 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -1064.9078 -1157.7363 131.3952 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -921,6 +955,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -1033.0579 -1193.5659 130.7096 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -1033.0579 -1193.5659 130.7096 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -938,6 +973,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -1037.8374 -1180.5306 132.4289 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -1037.8374 -1180.5306 132.4289 10.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -955,6 +991,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -1061.317 -1206.5726 134.2378 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -1061.317 -1206.5726 134.2378 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -972,6 +1009,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -1069.6578 -1172.485 151.2312 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -1069.6578 -1172.485 151.2312 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1017,9 +1055,9 @@ ENDIF
 GOSUB cv_spawn
 RETURN                          // um corvo por quadro, no maximo
 
-// ---- AREA 03   gatilho (-383.5, -1436.5, 32.3) raio 100   5 poleiro(s)
+// ---- AREA 03   gatilho (-383.5, -1436.5, 32.3) raio 200   5 poleiro(s)
 cv_area_03:
-IF LOCATE_CHAR_ANY_MEANS_3D player -383.5046 -1436.4948 32.3389 100.0 100.0 100.0 0
+IF LOCATE_CHAR_ANY_MEANS_3D player -383.5046 -1436.4948 32.3389 200.0 200.0 200.0 0
 AND NOT LOCATE_CHAR_ANY_MEANS_3D player -383.5046 -1436.4948 32.3389 30.0 30.0 30.0 0
     GOTO cv_area_03_sel
 ENDIF
@@ -1036,6 +1074,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -367.7802 -1446.1356 41.4857 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -367.7802 -1446.1356 41.4857 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1053,6 +1092,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -372.1537 -1431.8 34.0 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -372.1537 -1431.8 34.0 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1070,6 +1110,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -372.2798 -1434.6667 27.3188 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -372.2798 -1434.6667 27.3188 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1087,6 +1128,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -386.378 -1418.4358 28.8185 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -386.378 -1418.4358 28.8185 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1104,6 +1146,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -383.5046 -1436.4948 32.3389 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -383.5046 -1436.4948 32.3389 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1149,9 +1192,9 @@ ENDIF
 GOSUB cv_spawn
 RETURN                          // um corvo por quadro, no maximo
 
-// ---- AREA 04   gatilho (-352.4, -1047.3, 62.3) raio 100   5 poleiro(s)
+// ---- AREA 04   gatilho (-352.4, -1047.3, 62.3) raio 200   5 poleiro(s)
 cv_area_04:
-IF LOCATE_CHAR_ANY_MEANS_3D player -352.3501 -1047.2784 62.296 100.0 100.0 100.0 0
+IF LOCATE_CHAR_ANY_MEANS_3D player -352.3501 -1047.2784 62.296 200.0 200.0 200.0 0
 AND NOT LOCATE_CHAR_ANY_MEANS_3D player -352.3501 -1047.2784 62.296 30.0 30.0 30.0 0
     GOTO cv_area_04_sel
 ENDIF
@@ -1168,6 +1211,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -352.3501 -1047.2784 62.296 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -352.3501 -1047.2784 62.296 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1185,6 +1229,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -380.8538 -1043.7256 62.2499 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -380.8538 -1043.7256 62.2499 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1202,6 +1247,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -374.588 -1043.1473 61.9892 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -374.588 -1043.1473 61.9892 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1219,6 +1265,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -352.4305 -1037.0093 62.8199 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -352.4305 -1037.0093 62.8199 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1236,6 +1283,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -373.4202 -1066.0203 60.6072 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -373.4202 -1066.0203 60.6072 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1281,9 +1329,9 @@ ENDIF
 GOSUB cv_spawn
 RETURN                          // um corvo por quadro, no maximo
 
-// ---- AREA 05   gatilho (-2034.5, -2535.4, 43.3) raio 100   5 poleiro(s)
+// ---- AREA 05   gatilho (-2034.5, -2535.4, 43.3) raio 200   5 poleiro(s)
 cv_area_05:
-IF LOCATE_CHAR_ANY_MEANS_3D player -2034.4563 -2535.4041 43.3446 100.0 100.0 100.0 0
+IF LOCATE_CHAR_ANY_MEANS_3D player -2034.4563 -2535.4041 43.3446 200.0 200.0 200.0 0
     GOTO cv_area_05_sel
 ENDIF
 GOTO cv_area_06
@@ -1299,6 +1347,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -2062.801 -2535.3276 34.1357 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -2062.801 -2535.3276 34.1357 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1316,6 +1365,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -2056.678 -2507.3511 32.8195 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -2056.678 -2507.3511 32.8195 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1333,6 +1383,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -2034.4563 -2535.4041 43.3446 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -2034.4563 -2535.4041 43.3446 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1350,6 +1401,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -2052.2615 -2539.8887 33.0796 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -2052.2615 -2539.8887 33.0796 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1367,6 +1419,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -2034.4563 -2535.4041 42.3446 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -2034.4563 -2535.4041 42.3446 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1412,9 +1465,9 @@ ENDIF
 GOSUB cv_spawn
 RETURN                          // um corvo por quadro, no maximo
 
-// ---- AREA 06   gatilho (-2807.3, -1530.0, 143.8) raio 100   5 poleiro(s)
+// ---- AREA 06   gatilho (-2807.3, -1530.0, 143.8) raio 200   5 poleiro(s)
 cv_area_06:
-IF LOCATE_CHAR_ANY_MEANS_3D player -2807.282 -1530.0153 143.8001 100.0 100.0 100.0 0
+IF LOCATE_CHAR_ANY_MEANS_3D player -2807.282 -1530.0153 143.8001 200.0 200.0 200.0 0
     GOTO cv_area_06_sel
 ENDIF
 GOTO cv_area_07
@@ -1430,6 +1483,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -2807.282 -1530.0153 142.8001 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -2807.282 -1530.0153 142.8001 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1447,6 +1501,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -2807.4128 -1527.5131 143.8184 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -2807.4128 -1527.5131 143.8184 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1464,6 +1519,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -2807.2031 -1521.8174 143.7891 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -2807.2031 -1521.8174 143.7891 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1481,6 +1537,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -2814.1272 -1509.1133 142.3966 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -2814.1272 -1509.1133 142.3966 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1498,6 +1555,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -2804.8135 -1514.7708 142.1157 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -2804.8135 -1514.7708 142.1157 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1543,9 +1601,9 @@ ENDIF
 GOSUB cv_spawn
 RETURN                          // um corvo por quadro, no maximo
 
-// ---- AREA 07   gatilho (-1641.8, -2235.3, 34.5) raio 100   5 poleiro(s)
+// ---- AREA 07   gatilho (-1641.8, -2235.3, 34.5) raio 200   5 poleiro(s)
 cv_area_07:
-IF LOCATE_CHAR_ANY_MEANS_3D player -1641.8372 -2235.3174 34.4922 100.0 100.0 100.0 0
+IF LOCATE_CHAR_ANY_MEANS_3D player -1641.8372 -2235.3174 34.4922 200.0 200.0 200.0 0
     GOTO cv_area_07_sel
 ENDIF
 GOTO cv_area_08
@@ -1561,6 +1619,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -1641.9467 -2236.8245 34.4674 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -1641.9467 -2236.8245 34.4674 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1578,6 +1637,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -1641.9543 -2239.8064 34.4479 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -1641.9543 -2239.8064 34.4479 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1595,6 +1655,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -1644.7256 -2238.1343 31.4423 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -1644.7256 -2238.1343 31.4423 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1612,6 +1673,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -1641.8873 -2243.5178 34.4345 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -1641.8873 -2243.5178 34.4345 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1629,6 +1691,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -1642.4213 -2232.5295 34.4266 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -1642.4213 -2232.5295 34.4266 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1674,9 +1737,9 @@ ENDIF
 GOSUB cv_spawn
 RETURN                          // um corvo por quadro, no maximo
 
-// ---- AREA 08   gatilho (-1840.3, -1672.4, 22.1) raio 100   4 poleiro(s)
+// ---- AREA 08   gatilho (-1840.3, -1672.4, 22.1) raio 200   4 poleiro(s)
 cv_area_08:
-IF LOCATE_CHAR_ANY_MEANS_3D player -1840.3258 -1672.4329 22.0988 100.0 100.0 100.0 0
+IF LOCATE_CHAR_ANY_MEANS_3D player -1840.3258 -1672.4329 22.0988 200.0 200.0 200.0 0
     GOTO cv_area_08_sel
 ENDIF
 GOTO cv_area_09
@@ -1692,6 +1755,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -1862.5463 -1694.3281 48.2144 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -1862.5463 -1694.3281 48.2144 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1709,6 +1773,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -1926.8003 -1733.532 27.0156 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -1926.8003 -1733.532 27.0156 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1726,6 +1791,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -1878.55 -1635.6218 29.5635 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -1878.55 -1635.6218 29.5635 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1743,6 +1809,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -1849.9385 -1676.7151 34.268 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -1849.9385 -1676.7151 34.268 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1782,9 +1849,9 @@ ENDIF
 GOSUB cv_spawn
 RETURN                          // um corvo por quadro, no maximo
 
-// ---- AREA 09   gatilho (-545.6, -187.7, 78.4) raio 100   5 poleiro(s)
+// ---- AREA 09   gatilho (-545.6, -187.7, 78.4) raio 200   5 poleiro(s)
 cv_area_09:
-IF LOCATE_CHAR_ANY_MEANS_3D player -545.5967 -187.7389 78.4062 100.0 100.0 100.0 0
+IF LOCATE_CHAR_ANY_MEANS_3D player -545.5967 -187.7389 78.4062 200.0 200.0 200.0 0
     GOTO cv_area_09_sel
 ENDIF
 GOTO cv_area_10
@@ -1800,6 +1867,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -548.2428 -194.1817 82.5684 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -548.2428 -194.1817 82.5684 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1817,6 +1885,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -549.7703 -183.5204 82.0659 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -549.7703 -183.5204 82.0659 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1834,6 +1903,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -540.1224 -194.9465 79.4888 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -540.1224 -194.9465 79.4888 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1851,6 +1921,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -529.4323 -181.4828 83.6983 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -529.4323 -181.4828 83.6983 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1868,6 +1939,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -555.7335 -182.8492 79.3574 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -555.7335 -182.8492 79.3574 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1913,9 +1985,9 @@ ENDIF
 GOSUB cv_spawn
 RETURN                          // um corvo por quadro, no maximo
 
-// ---- AREA 10   gatilho (-87.7, -23.4, 6.6) raio 100   5 poleiro(s)
+// ---- AREA 10   gatilho (-87.7, -23.4, 6.6) raio 200   5 poleiro(s)
 cv_area_10:
-IF LOCATE_CHAR_ANY_MEANS_3D player -87.6538 -23.3865 6.5942 100.0 100.0 100.0 0
+IF LOCATE_CHAR_ANY_MEANS_3D player -87.6538 -23.3865 6.5942 200.0 200.0 200.0 0
     GOTO cv_area_10_sel
 ENDIF
 GOTO cv_area_11
@@ -1931,6 +2003,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -59.6655 -26.5985 25.9801 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -59.6655 -26.5985 25.9801 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1948,6 +2021,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -67.335 15.5959 5.9605 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -67.335 15.5959 5.9605 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1965,6 +2039,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -67.1478 31.8082 11.0083 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -67.1478 31.8082 11.0083 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1982,6 +2057,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -90.1248 -10.4309 12.2726 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -90.1248 -10.4309 12.2726 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -1999,6 +2075,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -86.0666 -23.8079 11.0097 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -86.0666 -23.8079 11.0097 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -2044,9 +2121,9 @@ ENDIF
 GOSUB cv_spawn
 RETURN                          // um corvo por quadro, no maximo
 
-// ---- AREA 11   gatilho (2240.3, -76.5, 26.5) raio 100   5 poleiro(s)
+// ---- AREA 11   gatilho (2240.3, -76.5, 26.5) raio 200   5 poleiro(s)
 cv_area_11:
-IF LOCATE_CHAR_ANY_MEANS_3D player 2240.3303 -76.4544 26.5146 100.0 100.0 100.0 0
+IF LOCATE_CHAR_ANY_MEANS_3D player 2240.3303 -76.4544 26.5146 200.0 200.0 200.0 0
     GOTO cv_area_11_sel
 ENDIF
 GOTO cv_area_12
@@ -2062,6 +2139,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D 2240.8752 -86.2229 27.8548 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN 2240.8752 -86.2229 27.8548 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -2079,6 +2157,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D 2251.6724 -72.7849 32.6133 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN 2251.6724 -72.7849 32.6133 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -2096,6 +2175,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D 2242.791 -77.0144 27.5148 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN 2242.791 -77.0144 27.5148 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -2113,6 +2193,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D 2243.1953 -66.9552 27.7524 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN 2243.1953 -66.9552 27.7524 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -2130,6 +2211,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D 2253.7126 -58.7321 29.7597 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN 2253.7126 -58.7321 29.7597 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -2175,9 +2257,9 @@ ENDIF
 GOSUB cv_spawn
 RETURN                          // um corvo por quadro, no maximo
 
-// ---- AREA 12   gatilho (891.0, -1103.2, 23.5) raio 100   5 poleiro(s)
+// ---- AREA 12   gatilho (891.0, -1103.2, 23.5) raio 200   5 poleiro(s)
 cv_area_12:
-IF LOCATE_CHAR_ANY_MEANS_3D player 891.0176 -1103.2471 23.5 100.0 100.0 100.0 0
+IF LOCATE_CHAR_ANY_MEANS_3D player 891.0176 -1103.2471 23.5 200.0 200.0 200.0 0
     GOTO cv_area_12_sel
 ENDIF
 GOTO cv_area_13
@@ -2193,6 +2275,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D 897.6763 -1079.8077 26.0933 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN 897.6763 -1079.8077 26.0933 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -2210,6 +2293,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D 893.562 -1117.6823 27.3605 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN 893.562 -1117.6823 27.3605 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -2227,6 +2311,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D 872.3456 -1086.2764 26.1268 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN 872.3456 -1086.2764 26.1268 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -2244,6 +2329,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D 914.5113 -1108.8202 26.8215 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN 914.5113 -1108.8202 26.8215 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -2261,6 +2347,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D 866.8079 -1112.1425 25.6876 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN 866.8079 -1112.1425 25.6876 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -2306,9 +2393,9 @@ ENDIF
 GOSUB cv_spawn
 RETURN                          // um corvo por quadro, no maximo
 
-// ---- AREA 13   gatilho (-362.0, -1671.3, 27.5) raio 100   5 poleiro(s)
+// ---- AREA 13   gatilho (-362.0, -1671.3, 27.5) raio 200   5 poleiro(s)
 cv_area_13:
-IF LOCATE_CHAR_ANY_MEANS_3D player -361.9819 -1671.2762 27.4701 100.0 100.0 100.0 0
+IF LOCATE_CHAR_ANY_MEANS_3D player -361.9819 -1671.2762 27.4701 200.0 200.0 200.0 0
     GOTO cv_area_13_sel
 ENDIF
 GOTO cv_scan_end
@@ -2324,6 +2411,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -350.883 -1672.2433 27.4166 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -350.883 -1672.2433 27.4166 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -2341,6 +2429,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -354.9198 -1662.9735 28.1631 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -354.9198 -1662.9735 28.1631 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -2358,6 +2447,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -371.0529 -1667.2954 27.2982 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -371.0529 -1667.2954 27.2982 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -2375,6 +2465,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -360.7076 -1675.0261 28.7048 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -360.7076 -1675.0261 28.7048 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -2392,6 +2483,7 @@ GOSUB cv_perch_busy
 IF st = 0
     GET_DISTANCE_BETWEEN_COORDS_3D -370.0551 -1678.3247 26.5342 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
+    AND gz <= SPAWN_MAX_DIST
         IF IS_POINT_ON_SCREEN -370.0551 -1678.3247 26.5342 5.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
@@ -2436,6 +2528,160 @@ IF found = 0
 ENDIF
 GOSUB cv_spawn
 RETURN                          // um corvo por quadro, no maximo
+
+// ---------------------------------------------------------------------------
+//  cv_area_lock_crow   guarda em lockarea a area de onde o corvo (h) saiu
+//
+//  Chamada quando o corvo vai embora (levanta voo, e solto longe, some).
+//  A area e descoberta pela posicao do corvo: assim nao precisa
+//  guardar a area de cada corvo (o script usa as 32 variaveis do jogo).
+//  A partir dai nenhum corvo nasce ate o jogador sair daquela area.
+// ---------------------------------------------------------------------------
+cv_area_lock_crow:
+IF NOT DOES_CHAR_EXIST h
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h -1464.7968 -1558.324 101.7578 200.0 200.0 200.0 0
+    lockarea = 1
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h -1055.7739 -1184.0836 129.1555 200.0 200.0 200.0 0
+    lockarea = 2
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h -383.5046 -1436.4948 32.3389 200.0 200.0 200.0 0
+    lockarea = 3
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h -352.3501 -1047.2784 62.296 200.0 200.0 200.0 0
+    lockarea = 4
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h -2034.4563 -2535.4041 43.3446 200.0 200.0 200.0 0
+    lockarea = 5
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h -2807.282 -1530.0153 143.8001 200.0 200.0 200.0 0
+    lockarea = 6
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h -1641.8372 -2235.3174 34.4922 200.0 200.0 200.0 0
+    lockarea = 7
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h -1840.3258 -1672.4329 22.0988 200.0 200.0 200.0 0
+    lockarea = 8
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h -545.5967 -187.7389 78.4062 200.0 200.0 200.0 0
+    lockarea = 9
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h -87.6538 -23.3865 6.5942 200.0 200.0 200.0 0
+    lockarea = 10
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h 2240.3303 -76.4544 26.5146 200.0 200.0 200.0 0
+    lockarea = 11
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h 891.0176 -1103.2471 23.5 200.0 200.0 200.0 0
+    lockarea = 12
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h -361.9819 -1671.2762 27.4701 200.0 200.0 200.0 0
+    lockarea = 13
+    RETURN
+ENDIF
+RETURN
+
+// ---------------------------------------------------------------------------
+//  cv_area_unlock   zera a trava quando o jogador ja saiu da area
+//
+//  O raio conferido e o da area de ativacao (200 m): saindo dai, os
+//  corvos daquele lugar podem voltar numa proxima visita.
+// ---------------------------------------------------------------------------
+cv_area_unlock:
+IF lockarea = 1
+    IF NOT LOCATE_CHAR_ANY_MEANS_3D player -1464.7968 -1558.324 101.7578 200.0 200.0 200.0 0
+        lockarea = 0
+    ENDIF
+    RETURN
+ENDIF
+IF lockarea = 2
+    IF NOT LOCATE_CHAR_ANY_MEANS_3D player -1055.7739 -1184.0836 129.1555 200.0 200.0 200.0 0
+        lockarea = 0
+    ENDIF
+    RETURN
+ENDIF
+IF lockarea = 3
+    IF NOT LOCATE_CHAR_ANY_MEANS_3D player -383.5046 -1436.4948 32.3389 200.0 200.0 200.0 0
+        lockarea = 0
+    ENDIF
+    RETURN
+ENDIF
+IF lockarea = 4
+    IF NOT LOCATE_CHAR_ANY_MEANS_3D player -352.3501 -1047.2784 62.296 200.0 200.0 200.0 0
+        lockarea = 0
+    ENDIF
+    RETURN
+ENDIF
+IF lockarea = 5
+    IF NOT LOCATE_CHAR_ANY_MEANS_3D player -2034.4563 -2535.4041 43.3446 200.0 200.0 200.0 0
+        lockarea = 0
+    ENDIF
+    RETURN
+ENDIF
+IF lockarea = 6
+    IF NOT LOCATE_CHAR_ANY_MEANS_3D player -2807.282 -1530.0153 143.8001 200.0 200.0 200.0 0
+        lockarea = 0
+    ENDIF
+    RETURN
+ENDIF
+IF lockarea = 7
+    IF NOT LOCATE_CHAR_ANY_MEANS_3D player -1641.8372 -2235.3174 34.4922 200.0 200.0 200.0 0
+        lockarea = 0
+    ENDIF
+    RETURN
+ENDIF
+IF lockarea = 8
+    IF NOT LOCATE_CHAR_ANY_MEANS_3D player -1840.3258 -1672.4329 22.0988 200.0 200.0 200.0 0
+        lockarea = 0
+    ENDIF
+    RETURN
+ENDIF
+IF lockarea = 9
+    IF NOT LOCATE_CHAR_ANY_MEANS_3D player -545.5967 -187.7389 78.4062 200.0 200.0 200.0 0
+        lockarea = 0
+    ENDIF
+    RETURN
+ENDIF
+IF lockarea = 10
+    IF NOT LOCATE_CHAR_ANY_MEANS_3D player -87.6538 -23.3865 6.5942 200.0 200.0 200.0 0
+        lockarea = 0
+    ENDIF
+    RETURN
+ENDIF
+IF lockarea = 11
+    IF NOT LOCATE_CHAR_ANY_MEANS_3D player 2240.3303 -76.4544 26.5146 200.0 200.0 200.0 0
+        lockarea = 0
+    ENDIF
+    RETURN
+ENDIF
+IF lockarea = 12
+    IF NOT LOCATE_CHAR_ANY_MEANS_3D player 891.0176 -1103.2471 23.5 200.0 200.0 200.0 0
+        lockarea = 0
+    ENDIF
+    RETURN
+ENDIF
+IF lockarea = 13
+    IF NOT LOCATE_CHAR_ANY_MEANS_3D player -361.9819 -1671.2762 27.4701 200.0 200.0 200.0 0
+        lockarea = 0
+    ENDIF
+    RETURN
+ENDIF
+lockarea = 0                    // area desconhecida: libera logo
+RETURN
 
 cv_scan_end:
 RETURN

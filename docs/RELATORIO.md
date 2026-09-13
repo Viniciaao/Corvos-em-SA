@@ -139,9 +139,10 @@ foi até o byte:
 
 1. **Compilação**: `gta3sc` (compilador de GTA3script, C++17, compilado aqui a
    partir do fonte) sem erros nem avisos. O `.cs` da 2.2 tem 10.624 bytes /
-   2.413 instruções na 2.3 (a 2.1 tinha 8.882 bytes; ~15 KB de cada script
+   2.664 instruções na 2.4 (a 2.1 tinha 8.882 bytes; ~15 KB de cada script
    original, cinco deles). O crescimento vem da escolha do poleiro: cada
-   candidato é conferido e comparado, em vez de ser o primeiro da lista.
+   candidato é conferido e comparado, em vez de ser o primeiro da lista, e a
+   trava de área é resolvida por posição.
 2. **Formato do arquivo**: o CLEO 4 lê o `.cs` inteiro como corpo do script
    (`CCustomScript::CCustomScript`, `CScriptEngine.cpp`) — e é exatamente assim
    que o arquivo sai do compilador: sem cabeçalho, começando direto no primeiro
@@ -329,7 +330,76 @@ alertas) continua no fonte, na parte CONFIGURACAO — são constantes que mudam 
 comportamento do bicho e exigem recompilar.
 
 
-## 8. Como recompilar
+## 8. Quarta rodada de testes em jogo (v2.4)
+
+**O que o jogador viu**: os corvos voltavam a aparecer poucos passos depois de
+irem embora — bastava virar de costas e andar um pouco e lá estava outro corvo
+nascendo. O pedido: *depois que os corvos vão embora, nenhum outro aparece até o
+jogador sair da área de ativação; e a área de ativação passa de 100 m para 200 m*.
+
+**O que o mod original fazia**: quando o corvo ia embora, o script dele parava,
+descarregava o ator especial, dava `wait 10000` (10 segundos) e **voltava para o
+começo** (`jump @NEAR_1`), recomeçando a varredura pela área 1. Ou seja: dez
+segundos depois já podia nascer outro corvo, e como a varredura recomeça pela
+primeira área com ponto na tela, o bicho reaparecia perto do jogador. A v2
+herdou esse "recomeça tudo" (só que sem espera nenhuma), que é a origem do
+incômodo.
+
+**A regra nova (v2.4)**:
+
+* quando um corvo vai embora — levanta voo (`cv_takeoff`), é solto por distância
+  (mais de 100 m do jogador) ou o jogo descarta o corpo (`cv_forget`) — a área
+  de onde ele saiu é marcada como **gasta** (`lockarea`);
+* com a área gasta, o `cv_scan` **nem começa**: nenhum corvo nasce em lugar
+  nenhum enquanto o jogador estiver dentro da esfera de 200 m daquela área;
+* saindo da esfera, a trava cai (`cv_area_unlock`) e os corvos daquele lugar
+  voltam numa próxima visita.
+
+**A área de ativação passou de 100 m para 200 m** (`AREA_RADIUS_MIN` em
+`tools/gen_corvos.py`), para todas as 13 regiões: é o raio do gatilho e também a
+distância que o jogador precisa se afastar para a região "liberar" de novo. O
+raio original fica registrado no `analysis/spots.csv` (coluna
+`gatilho_raio_original`) e no `spots.md`.
+
+**Por que uma trava só, e não uma por área.** O script já usava **todas as 32
+variáveis locais** que o motor dá a um script (`MAX_LOCAL_VARS`, 32 em
+`RunningScript.h`; as variáveis 32@/33@ são os cronômetros e ficam fora dessa
+conta). Uma trava por área (`lock[14]`) mais a área de cada corvo (`aslot[5]`)
+estouraria o limite na hora. A solução:
+
+* a trava é **uma variável** (`lockarea`, o número da área de onde os corvos
+  saíram), e quem perdeu seu lugar no orçamento foi o `cfg_max` — o
+  `numero_de_corvos` do INI passou a ser lido direto no `cv_free_slot`, onde
+  sobra uma variável de trabalho (`found`) para receber o valor;
+* a área do corvo que vai embora é descoberta **pela posição dele**: a sub
+  gerada `cv_area_lock_crow` testa o corpo contra as 13 esferas (a mesma
+  `LOCATE_CHAR_ANY_MEANS_3D` usada para o jogador) e grava a primeira que casar.
+  É por isso que a área não precisa ser guardada por corvo.
+
+**A trava global também resolveu uma sobreposição.** Conferindo as distâncias
+entre as 13 regiões com o raio novo, duas se sobrepõem: **áreas 3 e 13 estão a
+236 m uma da outra** (e as áreas 3 e 4 a 392 m, encostando). Com uma trava "por
+área", no meio da sobreposição o jogador veria os corvos da área vizinha
+nascendo logo depois dos da primeira irem embora — exatamente a reclamação. Com
+a trava global, o jogador precisa sair da região de onde os corvos foram embora,
+seja qual for a área que os produziu.
+
+**Nascimento mais previsível.** Como a área de ativação agora é 200 m, o
+poleiro escolhido passou a ter também um limite **máximo** de distância
+(`SPAWN_MAX_DIST`, 90 m): antes, um poleiro podia ser escolhido a 150 m, e como
+o corvo é solto a mais de 100 m do jogador ele seria descartado no quadro
+seguinte — o corvo nunca apareceria e a área ficaria gasta à toa. Com o limite,
+o corvo sempre nasce num ponto que o jogador tem chance de ver.
+
+**Conferência no bytecode**: o `.cs` da 2.4 tem 24.208 bytes / 2.664 instruções,
+usa no máximo o local **31@** (dentro do limite de 32) e a desmontagem mostra a
+sequência esperada no começo da varredura (`0039 NOT IS_INT_LVAR_EQUAL_TO_NUMBER
+15@ 0` → `GOSUB 005AB4` (unlock) → `RETURN`), as 13 esferas de 200 m no gatilho
+de cada área, e as duas subs geradas (`cv_area_lock_crow` testando o corpo do
+corvo, `cv_area_unlock` testando o jogador).
+
+
+## 9. Como recompilar
 
 ```sh
 sh tools/build.sh      # gera src/CORVOS.sc e compila para build/CLEO/CORVOS.cs
@@ -355,7 +425,7 @@ dist/                      pacote final (CLEO + gta3img + LEIAME)
 
 ---
 
-## 9. Créditos
+## 10. Créditos
 
 * **Dakurlz** — mod original e scripts `CROW1` … `CROW5`.
 * **JuniorDjjr**, **MixMods**, **BrModStudio** — divulgação/ferramentas citadas no

@@ -1,10 +1,10 @@
 ===========================================================================
- CORVOS DO GTA V  -  versao 2.3 (reescrita)
+ CORVOS DO GTA V  -  versao 2.4 (reescrita)
 ===========================================================================
 
  Mod original: Dakurlz
  Creditos originais: JuniorDjjr (blog), MixMods, BrModStudio
- Versao 2.3: um script unico (CORVOS.cs) no lugar dos cinco antigos
+ Versao 2.4: um script unico (CORVOS.cs) no lugar dos cinco antigos
            (CROW1.cs ... CROW5.cs), com os erros de logica corrigidos e um
            arquivo de configuracao (CLEO/CORVOS.ini).
 
@@ -20,6 +20,11 @@
          desaparece em vez de virar um pedestre qualquer; grasnado nao fica
          mais repetindo sem parar; volume dos sons; o corvo nao nasce na
          chuva nem na tempestade de areia; configuracao no CLEO/CORVOS.ini.
+   2.4 - os corvos nao reaparecem mais logo depois de irem embora: depois que
+         os corvos de um lugar vao embora, nenhum outro nasce ate o jogador se
+         afastar 200 m dali (o original esperava 10 s e comecava tudo de novo,
+         e o corvo nascia nas costas do jogador). A area de ativacao passou de
+         100 m para 200 m.
    2.3 - corrige o voo de vez (com a colisao desligada o GTA nao move o ped:
          o corvo ficava parado no ar batendo as asas);
          o corvo nao nasce mais na frente do jogador nem sempre no mesmo
@@ -43,6 +48,11 @@
     - tem fogo a menos de 5 m
     - um tiro passa de raspão
     - um carro passa a menos de 10 m a mais de 5.0 de velocidade
+ O corvo nasce no poleiro mais perto que estiver livre, de preferencia fora
+ da camera do jogador, e nunca a menos de 25 m dele. Depois que os corvos de
+ um lugar vao embora (levantam voo ou sao soltos por distancia), NENHUM outro
+ corvo nasce ate o jogador se afastar 200 m daquela regiao - e' so voltar
+ depois para ver os corvos de novo.
  No ar ele sobe ate uns 25 m, desvia de paredes olhando 12 m a frente,
  plana para pousar e grasna de novo ao pousar. Se for morto, cai
  (DIE_fly), toca a animacao de morte no chao (DIE_raven) e o corpo fica
@@ -115,7 +125,9 @@
  INI, reinicie o jogo.
 
  O que NAO esta no INI (e' ajustado no fonte, precisa recompilar):
-      o corvo nasce a mais de 25 m do jogador;
+      o corvo nasce entre 25 m e 90 m do jogador;
+      os corvos so voltam a nascer quando o jogador se afasta 200 m da
+      regiao de onde os outros foram embora;
       dois corvos pousados ficam a pelo menos 4 m um do outro;
       o som so toca a menos de 30 m;
       o corvo "esquece" o jogador a mais de 100 m;
