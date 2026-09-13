@@ -139,10 +139,10 @@ foi até o byte:
 
 1. **Compilação**: `gta3sc` (compilador de GTA3script, C++17, compilado aqui a
    partir do fonte) sem erros nem avisos. O `.cs` da 2.2 tem 10.624 bytes /
-   2.664 instruções na 2.4 (a 2.1 tinha 8.882 bytes; ~15 KB de cada script
+   2.919 instruções na 2.5 (a 2.1 tinha 8.882 bytes; ~15 KB de cada script
    original, cinco deles). O crescimento vem da escolha do poleiro: cada
-   candidato é conferido e comparado, em vez de ser o primeiro da lista, e a
-   trava de área é resolvida por posição.
+   candidato é conferido e comparado, em vez de ser o primeiro da lista, da
+   trava por região (resolvida por posição) e do modo debug.
 2. **Formato do arquivo**: o CLEO 4 lê o `.cs` inteiro como corpo do script
    (`CCustomScript::CCustomScript`, `CScriptEngine.cpp`) — e é exatamente assim
    que o arquivo sai do compilador: sem cabeçalho, começando direto no primeiro
@@ -399,7 +399,82 @@ de cada área, e as duas subs geradas (`cv_area_lock_crow` testando o corpo do
 corvo, `cv_area_unlock` testando o jogador).
 
 
-## 9. Como recompilar
+## 9. Quinta rodada: modo debug, grasnado por corvo e poleiro do CROW2 (v2.5)
+
+**1. Poleiro do CROW2 (área 1) movido** para `(-1437,8623, -1518,4524, 117,6562)`,
+como pedido, no `PERCH_OVERRIDES` de `tools/gen_corvos.py` (junto com o do
+CROW3, da rodada anterior). O `analysis/spots.csv`/`spots.md` já mostram os dois
+pontos com a marca `(ajustado)`.
+
+**2. Grasnado: cada corvo passou a ter o próprio relógio.** Antes o teste era
+igual para todos (`1/período` de chance por quadro) e o "relógio" começava do
+zero no nascimento — como os corvos de uma região nascem quase juntos, eles
+acabavam grasnando quase no mesmo instante.
+
+Agora o momento do grasnado de cada corvo sai de uma conta que mistura o
+**número do corpo dele** (o handle do ped, que é diferente para cada corvo) com
+o relógio do motor:
+
+```
+tmp = crow[slot] * 1237 + timerb + (timerb / 1000) * 271
+tmp = tmp mod (grasnado_a_cada * 1000)          // mod por divisão, sem 0B14
+caw se tmp < 300 ms
+```
+
+* o handle funciona como "fase" do corvo: handles vizinhos (corvos criados
+  juntos) caem a ~1,2 s um do outro — ou seja, espalhados pela janela, que era
+  exatamente o pedido ("alguns no meio, outros perto do fim, outros no começo");
+* a deriva (`(timerb/1000)*271`, cerca de 0,27 s por segundo) faz o intervalo
+  nunca sair sempre igual: na prática ele varia entre ~9 s e ~15 s em torno do
+  `grasnado_a_cada`;
+* o grasnado **só toca com o jogador a menos de 30 m** (`SND_RANGE`) e o som é
+  liberado quando termina (`0AB9 GET_AUDIO_STREAM_STATE` devolve -1 quando o
+  stream acabou) — é isso que impede o mesmo grasnado de ser disparado várias
+  vezes seguidas dentro da mesma janela;
+* o `cv_audio_range` deixou de **iniciar** grasnado ao religar o som: quem
+  grasna é o relógio do `cv_perch`, não a aproximação do jogador.
+
+**3. Modo debug.** Ligado pelo `debug = 1` no `CLEO/CORVOS.ini` (padrão 0, e
+desligado o único custo é ler essa chave do INI uma vez por quadro). Ele desenha
+duas linhas na tela:
+
+* caixa de ajuda: `area`, `proxima` (região mais perto), `dist` (distância até o
+  centro dela), `trava` (a região que está "gasta"), `clima`, `chuva` e
+  `modelo` (se o CROW01.dff e a raven.ifp estão carregados);
+* barra de mensagem: `corvos` (quantos/máximo do INI), `est` (estado de cada
+  vaga: 0 livre, 1 pousado, 2 subindo, 3 voando, 4 morto), `caw` (segundos do
+  `grasnado_a_cada`) e `t` (TIMERA e TIMERB).
+
+Como o script já usava as 32 variáveis locais do motor, o debug **não usa
+nenhuma variável nova**: as contas caem nas variáveis de trabalho (`st`, `tmp`,
+`found`, `h`, `slot`, `px..pz`, `fx..fz`, `ang`, `gz`, `rnd`), que já estão
+livres no ponto do quadro em que ele roda (depois da varredura, antes de voltar
+para o início do laço). O que ele adiciona é **código**: duas subs geradas
+(`cv_dbg_area`, que diz em que região o jogador está e o centro dela, e
+`cv_dbg_nearest`, que acha a região mais próxima e a distância) mais as duas
+chamadas de texto formatado do CLEO.
+
+**Texto formatado.** Para mostrar números sem gastar variável de string — cada
+string local ocupa 4 variáveis do orçamento, que não existe — o debug usa os
+opcodes de texto formatado do CLEO (`0ACE PRINT_HELP_FORMATTED` e
+`0AD1 PRINT_FORMATTED_NOW`), que aceitam a string de formato `"%~d%"`/`"%.0f"`
+como literal e os valores como argumentos. Foi conferido no fonte do CLEO 4
+(`CCustomOpcodeSystem.cpp`: `readString` + `format`) e no bytecode gerado, que a
+ordem dos parâmetros é *(formato, tempo, valores...)* e que o `gta3sc` fecha a
+lista variável com o marcador de fim (`0x00`) — o desmontador
+(`tools/scm_disasm.py`) foi ensinado a ler esses opcodes variáveis, o que
+também deixou a verificação do `.cs` inteira de novo.
+
+**Para tirar o debug depois** (foi feito pensando nisso): apagar a sub
+`cv_debug`, a chamada `GOSUB cv_debug` no fim do `cv_main`, as duas subs geradas
+(`cv_dbg_area` e `cv_dbg_nearest`) e a chave `debug` do INI. O relatório do
+próprio código lista esses passos no comentário do `cv_debug`.
+
+**Build 2.5**: 26.934 bytes, 2.919 instruções, no máximo o local **31@** (limite
+32 do motor) — conferido na desmontagem.
+
+
+## 10. Como recompilar
 
 ```sh
 sh tools/build.sh      # gera src/CORVOS.sc e compila para build/CLEO/CORVOS.cs
@@ -425,7 +500,7 @@ dist/                      pacote final (CLEO + gta3img + LEIAME)
 
 ---
 
-## 10. Créditos
+## 11. Créditos
 
 * **Dakurlz** — mod original e scripts `CROW1` … `CROW5`.
 * **JuniorDjjr**, **MixMods**, **BrModStudio** — divulgação/ferramentas citadas no

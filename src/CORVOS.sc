@@ -1,5 +1,5 @@
 // ===========================================================================
-//  CORVOS DO GTA V  -  versao 2.4 (reescrito, corrigido e otimizado)
+//  CORVOS DO GTA V  -  versao 2.5 (reescrito, corrigido e otimizado)
 //
 //  Mod original: Dakurlz
 //  Creditos originais: JuniorDjjr (blog), MixMods, BrModStudio
@@ -24,6 +24,11 @@
 //                  saida: build/CORVOS.cs
 //
 //  HISTORICO
+//   2.5 - modo debug (mostra na tela em que area o jogador esta, a trava, os
+//         corvos e o clima; ligado pelo "debug" do CLEO/CORVOS.ini),
+//         grasnado de cada corvo com relogio proprio (antes todos comecavam
+//         juntos e grasnavam quase ao mesmo tempo) e o poleiro do CROW2 da
+//         area 1 movido para onde o jogador pediu
 //   2.4 - os corvos nao reaparecem mais logo depois de irem embora: quando um
 //         corvo sai de uma regiao, ela fica "gasta" e nenhum outro corvo nasce
 //         ate o jogador se afastar 200 m dela (o original esperava 10 s e
@@ -93,6 +98,7 @@ CONST_FLOAT PERCH_MIN_DIST         4.0     // distancia minima entre dois corvos
 // Clima do GTA SA 1.0, lido da memoria com 0A8D READ_MEMORY (1 byte).
 // 0xC8131C = CWeather::NewWeatherType
 CONST_INT   ADDR_WEATHER_TYPE     0xC8131C
+CONST_INT   ADDR_RAIN             0xC81324   // CWeather::Rain (float; so o debug usa)
 
 
 // ---------------------------------------------------------------------------
@@ -189,6 +195,8 @@ ENDIF
 // garante que o jogo nao descarregou o ator especial / a animacao
 GOSUB cv_keep_loaded
 GOSUB cv_scan
+GOSUB cv_debug                      // na pratica nao faz nada: sai na primeira
+                                    // linha quando "debug = 0" no INI
 GOTO cv_main
 
 
@@ -250,6 +258,7 @@ WRITE_FLOAT_TO_INI_FILE 0.6 "CLEO/CORVOS.ini" "corvos" "volume_grasnado"
 WRITE_FLOAT_TO_INI_FILE 0.4 "CLEO/CORVOS.ini" "corvos" "volume_asas"
 WRITE_INT_TO_INI_FILE SPAWN_DELAY "CLEO/CORVOS.ini" "corvos" "tempo_entre_corvos"
 WRITE_INT_TO_INI_FILE RESPAWN_WAIT "CLEO/CORVOS.ini" "corvos" "tempo_para_renascer"
+WRITE_INT_TO_INI_FILE 0 "CLEO/CORVOS.ini" "corvos" "debug"
 IF DOES_FILE_EXIST "CLEO/CORVOS.ini"
     GOTO cv_ini_read
 ENDIF
@@ -313,6 +322,23 @@ RETURN
 
 
 // ---------------------------------------------------------------------------
+//  cv_area_lock   marca como "gasta" a area em que esta o corvo da vaga
+//
+//  A area e' descoberta pela posicao do corpo (sub gerada cv_area_of_char),
+//  entao nao e' preciso guardar a area de cada corvo. A trava so cai quando o
+//  jogador sai da area -- ver cv_area_unlock.
+// ---------------------------------------------------------------------------
+cv_area_lock:
+h = crow[slot]
+GOSUB cv_area_of_char
+IF st = 0
+    RETURN
+ENDIF
+lockarea = st
+RETURN
+
+
+// ---------------------------------------------------------------------------
 //  cv_tick   um passo do corvo da vaga "slot"
 // ---------------------------------------------------------------------------
 cv_tick:
@@ -334,7 +360,7 @@ IF NOT LOCATE_CHAR_ANY_MEANS_CHAR_3D player h DESPAWN_DIST DESPAWN_DIST DESPAWN_
     // estiver olhando (camera de noclip, por exemplo) o corvo continua vivo
     GET_CHAR_COORDINATES h px py pz
     IF NOT IS_POINT_ON_SCREEN px py pz 5.0
-        GOSUB cv_area_lock_crow   // os corvos desta area foram embora: gasta a area
+        GOSUB cv_area_lock        // os corvos desta area foram embora: gasta a area
         st = 1                    // 1 = apaga o corpo (nao vira npc comum)
         GOSUB cv_release
         RETURN
@@ -414,14 +440,37 @@ IF GET_RANDOM_CAR_IN_SPHERE_NO_SAVE_RECURSIVE px py pz CAR_ALERT_DIST 0 0 found
     ENDIF
 ENDIF
 
-// grasnado de vez em quando (o "grasnado_a_cada" do INI diz de quantos em
-// quantos segundos, em media). cfg_misc / 4 = segundos
-st = cfg_misc / 4
+// grasnado.
+//
+// Cada corvo tem o PROPRIO relogio: a fase sai do numero do corpo dele (o
+// "handle", que muda de corvo para corvo) somado ao relogio do motor, e o
+// periodo e' o "grasnado_a_cada" do INI. Antes o teste era igual para todos e
+// comecava do zero no nascimento, entao os corvos grasnavam quase juntos.
+// Uma deriva lenta faz o intervalo nunca sair sempre igual, e o grasnado so
+// toca com o jogador por perto (SND_RANGE).
+st = cfg_misc / 4                      // segundos
 IF st > 0
-    st *= 60                       // segundos -> quadros (60 fps)
-    GENERATE_RANDOM_INT_IN_RANGE 0 st tmp
-    IF tmp = 0
-        GOSUB cv_audio_caw_again
+    IF LOCATE_CHAR_ANY_MEANS_CHAR_3D player h SND_RANGE SND_RANGE SND_RANGE 0
+        // ainda esta tocando? entao espera (0AB9 devolve -1 quando terminou)
+        IF NOT snd[slot] = 0
+            GET_AUDIO_STREAM_STATE snd[slot] tmp
+            IF tmp > 0
+                RETURN
+            ENDIF
+            GOSUB cv_audio_off         // terminou: libera o stream
+        ENDIF
+        st *= 1000                     // periodo em milissegundos
+        tmp = crow[slot] * 1237        // fase daquele corvo
+        tmp += timerb
+        found = timerb / 1000
+        found *= 271                   // deriva lenta (~0,27 s por segundo)
+        tmp += found
+        found = tmp / st
+        found *= st
+        tmp = tmp - found              // quanto falta dentro do periodo
+        IF tmp < 300                   // janela do grasnado (~0,3 s)
+            GOSUB cv_audio_caw
+        ENDIF
     ENDIF
 ENDIF
 RETURN
@@ -444,7 +493,7 @@ SET_CHAR_COLLISION h TRUE
 SET_CHAR_VELOCITY h 0.0 0.0 CLIMB_SPEED
 GET_CHAR_HEADING h ang
 SET_CHAR_ROTATION h 10.0 0.0 ang
-GOSUB cv_area_lock_crow             // levantou voo: a area fica gasta ate o jogador sair
+GOSUB cv_area_lock                  // levantou voo: a area fica gasta ate o jogador sair
 RETURN
 
 
@@ -576,7 +625,7 @@ RETURN
 //             nele, entao so limpa a vaga e o audio
 cv_forget:
 GOSUB cv_audio_off
-GOSUB cv_area_lock_crow             // o corvo desta area foi embora
+GOSUB cv_area_lock                  // o corvo desta area foi embora
 crow[slot] = 0
 state[slot] = STATE_FREE
 snd[slot] = 0
@@ -649,9 +698,10 @@ ENDIF
 RETURN
 
 cv_audio_range_start:
+// so as asas (voo) religam sozinhas: o grasnado do corvo pousado tem hora
+// marcada no cv_perch e nao deve ser disparado so porque o jogador chegou perto
 st = state[slot]
 IF st = STATE_PERCH
-    GOSUB cv_audio_caw
     RETURN
 ENDIF
 IF st = STATE_CLIMB
@@ -678,16 +728,71 @@ GOSUB cv_audio_play
 RETURN
 
 
-// cv_audio_caw_again   grasnado extra: o stream do grasnado ja esta carregado
-//                      (o corvo esta pousado), entao so toca de novo
-cv_audio_caw_again:
-IF NOT snd[slot] = 0
-    SET_AUDIO_STREAM_STATE snd[slot] AUDIO_PLAY
-    SET_PLAY_3D_AUDIO_STREAM_AT_CHAR snd[slot] h
+// ---------------------------------------------------------------------------
+//  cv_debug   mostra na tela o que o mod esta pensando
+//
+//  Ligado pelo "debug = 1" no CLEO/CORVOS.ini (padrao 0). Desligado, o custo
+//  e' ler essa chave do INI uma vez por quadro.
+//
+//  PARA TIRAR O MODO DEBUG (quando nao for mais preciso):
+//    1. apague esta sub inteira;
+//    2. apague a linha "GOSUB cv_debug" no fim do cv_main;
+//    3. apague as subs geradas cv_dbg_area e cv_dbg_nearest (e os blocos que
+//       as geram, no tools/gen_corvos.py);
+//    4. tire a chave "debug" do tools/CORVOS.ini.
+//
+//  O que aparece na tela:
+//    area ........... em que area de corvos o jogador esta (0 = nenhuma)
+//    proxima ........ numero da area mais proxima
+//    dist ........... distancia ate o centro dessa area
+//    trava .......... area "gasta" (os corvos de la so voltam quando o jogador
+//                     sai da esfera dela; 0 = nenhuma)
+//    clima / chuva .. tipo de clima do jogo e intensidade da chuva
+//    modelo ......... 1 quando o CROW01.dff e a raven.ifp estao carregados
+//    corvos ......... quantos corvos existem / maximo do INI
+//    est ............ estado de cada vaga (0 livre, 1 pousado, 2 subindo,
+//                     3 voando, 4 morto)
+//    caw ............ "grasnado_a_cada" (segundos)
+//    t .............. TIMERA e TIMERB, os cronometros do motor
+// ---------------------------------------------------------------------------
+cv_debug:
+tmp = 0
+READ_INT_FROM_INI_FILE "CLEO/CORVOS.ini" "corvos" "debug" tmp
+IF tmp = 0
     RETURN
 ENDIF
-found = 2
-GOSUB cv_audio_play
+h = player
+GOSUB cv_dbg_area                   // st = area do jogador, px/py/pz = centro
+GOSUB cv_dbg_nearest                // found = area mais proxima, gz = distancia
+READ_MEMORY ADDR_WEATHER_TYPE 1 0 tmp
+READ_MEMORY ADDR_RAIN 4 0 rnd
+h = 0
+IF HAS_SPECIAL_CHARACTER_LOADED CROW_SLOT
+AND HAS_ANIMATION_LOADED "RAVEN"
+    h = 1
+ENDIF
+slot = 0
+IF NOT crow[0] = 0
+    slot += 1
+ENDIF
+IF NOT crow[1] = 0
+    slot += 1
+ENDIF
+IF NOT crow[2] = 0
+    slot += 1
+ENDIF
+IF NOT crow[3] = 0
+    slot += 1
+ENDIF
+IF NOT crow[4] = 0
+    slot += 1
+ENDIF
+PRINT_HELP_FORMATTED "~y~CORVOS DEBUG~w~  area %d  proxima %d  dist %.0f m  trava %d  clima %d  chuva %.0f  modelo %d" st found gz lockarea tmp rnd h
+tmp = cfg_misc / 4
+// ATENCAO: os argumentos do texto formatado tem que ser numeros ou variaveis --
+// passar o nome de uma constante faz o gta3sc mandar um "text label", e o jogo
+// imprimiria lixo. Por isso o 5 (MAX_CROWS) aqui e' literal.
+PRINT_FORMATTED_NOW "corvos %d/%d  est %d%d%d%d%d  caw %d s  t %d %d" 500 slot 5 state[0] state[1] state[2] state[3] state[4] tmp timera timerb
 RETURN
 
 
@@ -810,16 +915,16 @@ IF st = 0
         ENDIF
     ENDIF
 ENDIF
-// candidato 2: (-1464.7902, -1550.6583, 101.7578) CROW2.txt
-px = -1464.7902
-py = -1550.6583
-pz = 101.7578
+// candidato 2: (-1437.8623, -1518.4524, 117.6562) CROW2.txt (ajustado)
+px = -1437.8623
+py = -1518.4524
+pz = 117.6562
 GOSUB cv_perch_busy
 IF st = 0
-    GET_DISTANCE_BETWEEN_COORDS_3D -1464.7902 -1550.6583 101.7578 fx fy fz gz
+    GET_DISTANCE_BETWEEN_COORDS_3D -1437.8623 -1518.4524 117.6562 fx fy fz gz
     IF gz >= SPAWN_MIN_DIST
     AND gz <= SPAWN_MAX_DIST
-        IF IS_POINT_ON_SCREEN -1464.7902 -1550.6583 101.7578 20.0
+        IF IS_POINT_ON_SCREEN -1437.8623 -1518.4524 117.6562 20.0
             gz *= 2.0            // na tela: perde para um escondido
         ENDIF
         IF gz > rnd
@@ -889,9 +994,9 @@ IF found = 1
     ang = 208.972
 ENDIF
 IF found = 2
-    px = -1464.7902
-    py = -1550.6583
-    pz = 101.7578
+    px = -1437.8623
+    py = -1518.4524
+    pz = 117.6562
     ang = 281.4805
 ENDIF
 IF found = 3
@@ -2530,77 +2635,249 @@ GOSUB cv_spawn
 RETURN                          // um corvo por quadro, no maximo
 
 // ---------------------------------------------------------------------------
-//  cv_area_lock_crow   guarda em lockarea a area de onde o corvo (h) saiu
+//  cv_area_of_char   st = area (1..13) em que esta o personagem h
 //
-//  Chamada quando o corvo vai embora (levanta voo, e solto longe, some).
-//  A area e descoberta pela posicao do corvo: assim nao precisa
-//  guardar a area de cada corvo (o script usa as 32 variaveis do jogo).
-//  A partir dai nenhum corvo nasce ate o jogador sair daquela area.
+//  Usada quando um corvo vai embora (levantar voo, morrer longe, ser
+//  solto): a area descoberta aqui e guardada em lockarea. A area e
+//  descoberta pela posicao do corpo, entao nao e preciso guardar a area
+//  de cada corvo (o script usa as 32 variaveis locais do jogo).
+//  0 = fora de todas as areas.
 // ---------------------------------------------------------------------------
-cv_area_lock_crow:
+cv_area_of_char:
+st = 0
 IF NOT DOES_CHAR_EXIST h
     RETURN
 ENDIF
 IF LOCATE_CHAR_ANY_MEANS_3D h -1464.7968 -1558.324 101.7578 200.0 200.0 200.0 0
-    lockarea = 1
+    st = 1
     RETURN
 ENDIF
 IF LOCATE_CHAR_ANY_MEANS_3D h -1055.7739 -1184.0836 129.1555 200.0 200.0 200.0 0
-    lockarea = 2
+    st = 2
     RETURN
 ENDIF
 IF LOCATE_CHAR_ANY_MEANS_3D h -383.5046 -1436.4948 32.3389 200.0 200.0 200.0 0
-    lockarea = 3
+    st = 3
     RETURN
 ENDIF
 IF LOCATE_CHAR_ANY_MEANS_3D h -352.3501 -1047.2784 62.296 200.0 200.0 200.0 0
-    lockarea = 4
+    st = 4
     RETURN
 ENDIF
 IF LOCATE_CHAR_ANY_MEANS_3D h -2034.4563 -2535.4041 43.3446 200.0 200.0 200.0 0
-    lockarea = 5
+    st = 5
     RETURN
 ENDIF
 IF LOCATE_CHAR_ANY_MEANS_3D h -2807.282 -1530.0153 143.8001 200.0 200.0 200.0 0
-    lockarea = 6
+    st = 6
     RETURN
 ENDIF
 IF LOCATE_CHAR_ANY_MEANS_3D h -1641.8372 -2235.3174 34.4922 200.0 200.0 200.0 0
-    lockarea = 7
+    st = 7
     RETURN
 ENDIF
 IF LOCATE_CHAR_ANY_MEANS_3D h -1840.3258 -1672.4329 22.0988 200.0 200.0 200.0 0
-    lockarea = 8
+    st = 8
     RETURN
 ENDIF
 IF LOCATE_CHAR_ANY_MEANS_3D h -545.5967 -187.7389 78.4062 200.0 200.0 200.0 0
-    lockarea = 9
+    st = 9
     RETURN
 ENDIF
 IF LOCATE_CHAR_ANY_MEANS_3D h -87.6538 -23.3865 6.5942 200.0 200.0 200.0 0
-    lockarea = 10
+    st = 10
     RETURN
 ENDIF
 IF LOCATE_CHAR_ANY_MEANS_3D h 2240.3303 -76.4544 26.5146 200.0 200.0 200.0 0
-    lockarea = 11
+    st = 11
     RETURN
 ENDIF
 IF LOCATE_CHAR_ANY_MEANS_3D h 891.0176 -1103.2471 23.5 200.0 200.0 200.0 0
-    lockarea = 12
+    st = 12
     RETURN
 ENDIF
 IF LOCATE_CHAR_ANY_MEANS_3D h -361.9819 -1671.2762 27.4701 200.0 200.0 200.0 0
-    lockarea = 13
+    st = 13
     RETURN
 ENDIF
 RETURN
 
 // ---------------------------------------------------------------------------
-//  cv_area_unlock   zera a trava quando o jogador ja saiu da area
-//
-//  O raio conferido e o da area de ativacao (200 m): saindo dai, os
-//  corvos daquele lugar podem voltar numa proxima visita.
+//  MODO DEBUG (so usado pelo cv_debug; para tirar o debug, apague as duas
+//  subs abaixo junto com o cv_debug e a chamada dele no cv_main)
 // ---------------------------------------------------------------------------
+
+// cv_dbg_area   st = area em que esta o personagem h e px/py/pz = centro
+cv_dbg_area:
+st = 0
+IF NOT DOES_CHAR_EXIST h
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h -1464.7968 -1558.324 101.7578 200.0 200.0 200.0 0
+    st = 1
+    px = -1464.7968
+    py = -1558.324
+    pz = 101.7578
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h -1055.7739 -1184.0836 129.1555 200.0 200.0 200.0 0
+    st = 2
+    px = -1055.7739
+    py = -1184.0836
+    pz = 129.1555
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h -383.5046 -1436.4948 32.3389 200.0 200.0 200.0 0
+    st = 3
+    px = -383.5046
+    py = -1436.4948
+    pz = 32.3389
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h -352.3501 -1047.2784 62.296 200.0 200.0 200.0 0
+    st = 4
+    px = -352.3501
+    py = -1047.2784
+    pz = 62.296
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h -2034.4563 -2535.4041 43.3446 200.0 200.0 200.0 0
+    st = 5
+    px = -2034.4563
+    py = -2535.4041
+    pz = 43.3446
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h -2807.282 -1530.0153 143.8001 200.0 200.0 200.0 0
+    st = 6
+    px = -2807.282
+    py = -1530.0153
+    pz = 143.8001
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h -1641.8372 -2235.3174 34.4922 200.0 200.0 200.0 0
+    st = 7
+    px = -1641.8372
+    py = -2235.3174
+    pz = 34.4922
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h -1840.3258 -1672.4329 22.0988 200.0 200.0 200.0 0
+    st = 8
+    px = -1840.3258
+    py = -1672.4329
+    pz = 22.0988
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h -545.5967 -187.7389 78.4062 200.0 200.0 200.0 0
+    st = 9
+    px = -545.5967
+    py = -187.7389
+    pz = 78.4062
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h -87.6538 -23.3865 6.5942 200.0 200.0 200.0 0
+    st = 10
+    px = -87.6538
+    py = -23.3865
+    pz = 6.5942
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h 2240.3303 -76.4544 26.5146 200.0 200.0 200.0 0
+    st = 11
+    px = 2240.3303
+    py = -76.4544
+    pz = 26.5146
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h 891.0176 -1103.2471 23.5 200.0 200.0 200.0 0
+    st = 12
+    px = 891.0176
+    py = -1103.2471
+    pz = 23.5
+    RETURN
+ENDIF
+IF LOCATE_CHAR_ANY_MEANS_3D h -361.9819 -1671.2762 27.4701 200.0 200.0 200.0 0
+    st = 13
+    px = -361.9819
+    py = -1671.2762
+    pz = 27.4701
+    RETURN
+ENDIF
+RETURN
+
+// cv_dbg_nearest   found = area mais proxima do jogador, gz = distancia
+cv_dbg_nearest:
+GET_CHAR_COORDINATES player fx fy fz
+found = 0
+rnd = 100000.0
+GET_DISTANCE_BETWEEN_COORDS_3D fx fy fz -1464.7968 -1558.324 101.7578 gz
+IF gz < rnd
+    rnd = gz
+    found = 1
+ENDIF
+GET_DISTANCE_BETWEEN_COORDS_3D fx fy fz -1055.7739 -1184.0836 129.1555 gz
+IF gz < rnd
+    rnd = gz
+    found = 2
+ENDIF
+GET_DISTANCE_BETWEEN_COORDS_3D fx fy fz -383.5046 -1436.4948 32.3389 gz
+IF gz < rnd
+    rnd = gz
+    found = 3
+ENDIF
+GET_DISTANCE_BETWEEN_COORDS_3D fx fy fz -352.3501 -1047.2784 62.296 gz
+IF gz < rnd
+    rnd = gz
+    found = 4
+ENDIF
+GET_DISTANCE_BETWEEN_COORDS_3D fx fy fz -2034.4563 -2535.4041 43.3446 gz
+IF gz < rnd
+    rnd = gz
+    found = 5
+ENDIF
+GET_DISTANCE_BETWEEN_COORDS_3D fx fy fz -2807.282 -1530.0153 143.8001 gz
+IF gz < rnd
+    rnd = gz
+    found = 6
+ENDIF
+GET_DISTANCE_BETWEEN_COORDS_3D fx fy fz -1641.8372 -2235.3174 34.4922 gz
+IF gz < rnd
+    rnd = gz
+    found = 7
+ENDIF
+GET_DISTANCE_BETWEEN_COORDS_3D fx fy fz -1840.3258 -1672.4329 22.0988 gz
+IF gz < rnd
+    rnd = gz
+    found = 8
+ENDIF
+GET_DISTANCE_BETWEEN_COORDS_3D fx fy fz -545.5967 -187.7389 78.4062 gz
+IF gz < rnd
+    rnd = gz
+    found = 9
+ENDIF
+GET_DISTANCE_BETWEEN_COORDS_3D fx fy fz -87.6538 -23.3865 6.5942 gz
+IF gz < rnd
+    rnd = gz
+    found = 10
+ENDIF
+GET_DISTANCE_BETWEEN_COORDS_3D fx fy fz 2240.3303 -76.4544 26.5146 gz
+IF gz < rnd
+    rnd = gz
+    found = 11
+ENDIF
+GET_DISTANCE_BETWEEN_COORDS_3D fx fy fz 891.0176 -1103.2471 23.5 gz
+IF gz < rnd
+    rnd = gz
+    found = 12
+ENDIF
+GET_DISTANCE_BETWEEN_COORDS_3D fx fy fz -361.9819 -1671.2762 27.4701 gz
+IF gz < rnd
+    rnd = gz
+    found = 13
+ENDIF
+RETURN
+
 cv_area_unlock:
 IF lockarea = 1
     IF NOT LOCATE_CHAR_ANY_MEANS_3D player -1464.7968 -1558.324 101.7578 200.0 200.0 200.0 0

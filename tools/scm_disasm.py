@@ -49,8 +49,50 @@ def load_commands():
     return table
 
 
+def read_param(data, pos):
+    """Le um parametro do script. Devolve (texto, novo_pos, tipo, valor_int32)."""
+    t = data[pos]
+    pos += 1
+    if t == 0x0E:                      # string pascal (tamanho + texto)
+        n = data[pos]
+        pos += 1
+        return repr(data[pos:pos + n].decode('latin1')), pos + n, t, None
+    if t == 0x0F:                      # string longa (16 bytes)
+        return (repr(data[pos:pos + 16].rstrip(b'\x00').decode('latin1')),
+                pos + 16, t, None)
+    kind, size = PAYLOAD.get(t, ('?%02X' % t, 0))
+    raw = data[pos:pos + size]
+    pos += size
+    if kind in ('int8', 'int16', 'int32'):
+        v = int.from_bytes(raw, 'little', signed=True)
+        return '%d' % v, pos, t, v
+    if kind == 'float':
+        return '%.4f' % struct.unpack('<f', raw)[0], pos, t, None
+    if kind == 'lvar':
+        return '%d@' % int.from_bytes(raw, 'little'), pos, t, None
+    if kind == 'gvar':
+        return '$%d' % int.from_bytes(raw, 'little'), pos, t, None
+    if kind in ('lvar_arr', 'gvar_arr'):
+        b = int.from_bytes(raw[0:2], 'little')
+        i = int.from_bytes(raw[2:4], 'little')
+        n = raw[4]
+        t2 = raw[5]
+        et = {0: 'i', 1: 'f', 2: 's', 3: 'S'}.get(t2 & 0x7F, '?')
+        g = 'g' if (t2 & 0x80) else ''
+        return ('%d%s[%d@%s]%s(%d)'
+                % (b, '$' if kind == 'gvar_arr' else '@', i, g, et, n), pos, t, None)
+    if kind == 'str8':
+        return repr(raw.rstrip(b'\x00').decode('latin1')), pos, t, None
+    return '%s:%s' % (kind, raw.hex()), pos, t, None
+
+
 def walk(data, table):
-    """Percorre o arquivo e devolve [(inicio, fim, op, negado, nome, args_txt, salto_bruto)]."""
+    """Percorre o arquivo e devolve [(inicio, fim, op, negado, nome, args_txt, salto_bruto)].
+
+    Opcodes com argumento variavel (o PARAM optional do gta3sc, como
+    PRINT_FORMATTED_NOW / STRING_FORMAT) leem parametros ate o marcador de fim
+    (tipo 0x00) -- sem isso a desmontagem perde o alinhamento depois deles.
+    """
     pos = 0
     out = []
     while pos < len(data):
@@ -62,48 +104,24 @@ def walk(data, table):
         name, args = table.get(op, ('<desconhecido %04X>' % op, []))
         if neg:
             name = 'NOT ' + name
+        variadic = bool(args) and args[-1] == 'PARAM'
+        fixos = args[:-1] if variadic else args
         vals = []
         jump = None
-        for _ in args:
+        for _ in fixos:
             if pos >= len(data):
                 break
-            t = data[pos]; pos += 1
-            if t == 0x0E:                      # pascal string
-                n = data[pos]; pos += 1
-                vals.append(repr(data[pos:pos + n].decode('latin1'))); pos += n
-                continue
-            if t == 0x0F:                      # long string (16 bytes)
-                vals.append(repr(data[pos:pos + 16].rstrip(b'\x00').decode('latin1')))
-                pos += 16
-                continue
-            kind, size = PAYLOAD.get(t, ('?%02X' % t, 0))
-            raw = data[pos:pos + size]
-            pos += size
-            if kind in ('int8', 'int16', 'int32'):
-                v = int.from_bytes(raw, 'little', signed=True)
-                if op in GOTO_OPS and kind == 'int32':
-                    jump = v
-                    vals.append('->%d' % v)     # resolvido depois
-                else:
-                    vals.append('%d' % v)
-            elif kind == 'float':
-                vals.append('%.4f' % struct.unpack('<f', raw)[0])
-            elif kind == 'lvar':
-                vals.append('%d@' % int.from_bytes(raw, 'little'))
-            elif kind == 'gvar':
-                vals.append('$%d' % int.from_bytes(raw, 'little'))
-            elif kind in ('lvar_arr', 'gvar_arr'):
-                b = int.from_bytes(raw[0:2], 'little')
-                i = int.from_bytes(raw[2:4], 'little')
-                n = raw[4]
-                t2 = raw[5]
-                et = {0: 'i', 1: 'f', 2: 's', 3: 'S'}.get(t2 & 0x7F, '?')
-                g = 'g' if (t2 & 0x80) else ''
-                vals.append('%d%s[%d@%s]%s(%d)' % (b, '$' if kind == 'gvar_arr' else '@', i, g, et, n))
-            elif kind == 'str8':
-                vals.append(repr(raw.rstrip(b'\x00').decode('latin1')))
-            else:
-                vals.append('%s:%s' % (kind, raw.hex()))
+            txt, pos, t, v = read_param(data, pos)
+            if op in GOTO_OPS and t == 0x01:
+                jump = v
+                txt = '->%d' % v             # resolvido depois
+            vals.append(txt)
+        if variadic:
+            while pos < len(data) and data[pos] != 0x00:
+                txt, pos, t, v = read_param(data, pos)
+                vals.append(txt)
+            if pos < len(data):
+                pos += 1                     # consome o marcador de fim
         out.append([ini, pos, op, neg, name, vals, jump])
     return out
 

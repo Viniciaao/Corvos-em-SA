@@ -1,5 +1,5 @@
 // ===========================================================================
-//  CORVOS DO GTA V  -  versao 2.4 (reescrito, corrigido e otimizado)
+//  CORVOS DO GTA V  -  versao 2.5 (reescrito, corrigido e otimizado)
 //
 //  Mod original: Dakurlz
 //  Creditos originais: JuniorDjjr (blog), MixMods, BrModStudio
@@ -24,6 +24,11 @@
 //                  saida: build/CORVOS.cs
 //
 //  HISTORICO
+//   2.5 - modo debug (mostra na tela em que area o jogador esta, a trava, os
+//         corvos e o clima; ligado pelo "debug" do CLEO/CORVOS.ini),
+//         grasnado de cada corvo com relogio proprio (antes todos comecavam
+//         juntos e grasnavam quase ao mesmo tempo) e o poleiro do CROW2 da
+//         area 1 movido para onde o jogador pediu
 //   2.4 - os corvos nao reaparecem mais logo depois de irem embora: quando um
 //         corvo sai de uma regiao, ela fica "gasta" e nenhum outro corvo nasce
 //         ate o jogador se afastar 200 m dela (o original esperava 10 s e
@@ -93,6 +98,7 @@ CONST_FLOAT PERCH_MIN_DIST         4.0     // distancia minima entre dois corvos
 // Clima do GTA SA 1.0, lido da memoria com 0A8D READ_MEMORY (1 byte).
 // 0xC8131C = CWeather::NewWeatherType
 CONST_INT   ADDR_WEATHER_TYPE     0xC8131C
+CONST_INT   ADDR_RAIN             0xC81324   // CWeather::Rain (float; so o debug usa)
 
 
 // ---------------------------------------------------------------------------
@@ -189,6 +195,8 @@ ENDIF
 // garante que o jogo nao descarregou o ator especial / a animacao
 GOSUB cv_keep_loaded
 GOSUB cv_scan
+GOSUB cv_debug                      // na pratica nao faz nada: sai na primeira
+                                    // linha quando "debug = 0" no INI
 GOTO cv_main
 
 
@@ -250,6 +258,7 @@ WRITE_FLOAT_TO_INI_FILE 0.6 "CLEO/CORVOS.ini" "corvos" "volume_grasnado"
 WRITE_FLOAT_TO_INI_FILE 0.4 "CLEO/CORVOS.ini" "corvos" "volume_asas"
 WRITE_INT_TO_INI_FILE SPAWN_DELAY "CLEO/CORVOS.ini" "corvos" "tempo_entre_corvos"
 WRITE_INT_TO_INI_FILE RESPAWN_WAIT "CLEO/CORVOS.ini" "corvos" "tempo_para_renascer"
+WRITE_INT_TO_INI_FILE 0 "CLEO/CORVOS.ini" "corvos" "debug"
 IF DOES_FILE_EXIST "CLEO/CORVOS.ini"
     GOTO cv_ini_read
 ENDIF
@@ -313,6 +322,23 @@ RETURN
 
 
 // ---------------------------------------------------------------------------
+//  cv_area_lock   marca como "gasta" a area em que esta o corvo da vaga
+//
+//  A area e' descoberta pela posicao do corpo (sub gerada cv_area_of_char),
+//  entao nao e' preciso guardar a area de cada corvo. A trava so cai quando o
+//  jogador sai da area -- ver cv_area_unlock.
+// ---------------------------------------------------------------------------
+cv_area_lock:
+h = crow[slot]
+GOSUB cv_area_of_char
+IF st = 0
+    RETURN
+ENDIF
+lockarea = st
+RETURN
+
+
+// ---------------------------------------------------------------------------
 //  cv_tick   um passo do corvo da vaga "slot"
 // ---------------------------------------------------------------------------
 cv_tick:
@@ -334,7 +360,7 @@ IF NOT LOCATE_CHAR_ANY_MEANS_CHAR_3D player h DESPAWN_DIST DESPAWN_DIST DESPAWN_
     // estiver olhando (camera de noclip, por exemplo) o corvo continua vivo
     GET_CHAR_COORDINATES h px py pz
     IF NOT IS_POINT_ON_SCREEN px py pz 5.0
-        GOSUB cv_area_lock_crow   // os corvos desta area foram embora: gasta a area
+        GOSUB cv_area_lock        // os corvos desta area foram embora: gasta a area
         st = 1                    // 1 = apaga o corpo (nao vira npc comum)
         GOSUB cv_release
         RETURN
@@ -414,14 +440,37 @@ IF GET_RANDOM_CAR_IN_SPHERE_NO_SAVE_RECURSIVE px py pz CAR_ALERT_DIST 0 0 found
     ENDIF
 ENDIF
 
-// grasnado de vez em quando (o "grasnado_a_cada" do INI diz de quantos em
-// quantos segundos, em media). cfg_misc / 4 = segundos
-st = cfg_misc / 4
+// grasnado.
+//
+// Cada corvo tem o PROPRIO relogio: a fase sai do numero do corpo dele (o
+// "handle", que muda de corvo para corvo) somado ao relogio do motor, e o
+// periodo e' o "grasnado_a_cada" do INI. Antes o teste era igual para todos e
+// comecava do zero no nascimento, entao os corvos grasnavam quase juntos.
+// Uma deriva lenta faz o intervalo nunca sair sempre igual, e o grasnado so
+// toca com o jogador por perto (SND_RANGE).
+st = cfg_misc / 4                      // segundos
 IF st > 0
-    st *= 60                       // segundos -> quadros (60 fps)
-    GENERATE_RANDOM_INT_IN_RANGE 0 st tmp
-    IF tmp = 0
-        GOSUB cv_audio_caw_again
+    IF LOCATE_CHAR_ANY_MEANS_CHAR_3D player h SND_RANGE SND_RANGE SND_RANGE 0
+        // ainda esta tocando? entao espera (0AB9 devolve -1 quando terminou)
+        IF NOT snd[slot] = 0
+            GET_AUDIO_STREAM_STATE snd[slot] tmp
+            IF tmp > 0
+                RETURN
+            ENDIF
+            GOSUB cv_audio_off         // terminou: libera o stream
+        ENDIF
+        st *= 1000                     // periodo em milissegundos
+        tmp = crow[slot] * 1237        // fase daquele corvo
+        tmp += timerb
+        found = timerb / 1000
+        found *= 271                   // deriva lenta (~0,27 s por segundo)
+        tmp += found
+        found = tmp / st
+        found *= st
+        tmp = tmp - found              // quanto falta dentro do periodo
+        IF tmp < 300                   // janela do grasnado (~0,3 s)
+            GOSUB cv_audio_caw
+        ENDIF
     ENDIF
 ENDIF
 RETURN
@@ -444,7 +493,7 @@ SET_CHAR_COLLISION h TRUE
 SET_CHAR_VELOCITY h 0.0 0.0 CLIMB_SPEED
 GET_CHAR_HEADING h ang
 SET_CHAR_ROTATION h 10.0 0.0 ang
-GOSUB cv_area_lock_crow             // levantou voo: a area fica gasta ate o jogador sair
+GOSUB cv_area_lock                  // levantou voo: a area fica gasta ate o jogador sair
 RETURN
 
 
@@ -576,7 +625,7 @@ RETURN
 //             nele, entao so limpa a vaga e o audio
 cv_forget:
 GOSUB cv_audio_off
-GOSUB cv_area_lock_crow             // o corvo desta area foi embora
+GOSUB cv_area_lock                  // o corvo desta area foi embora
 crow[slot] = 0
 state[slot] = STATE_FREE
 snd[slot] = 0
@@ -649,9 +698,10 @@ ENDIF
 RETURN
 
 cv_audio_range_start:
+// so as asas (voo) religam sozinhas: o grasnado do corvo pousado tem hora
+// marcada no cv_perch e nao deve ser disparado so porque o jogador chegou perto
 st = state[slot]
 IF st = STATE_PERCH
-    GOSUB cv_audio_caw
     RETURN
 ENDIF
 IF st = STATE_CLIMB
@@ -678,16 +728,71 @@ GOSUB cv_audio_play
 RETURN
 
 
-// cv_audio_caw_again   grasnado extra: o stream do grasnado ja esta carregado
-//                      (o corvo esta pousado), entao so toca de novo
-cv_audio_caw_again:
-IF NOT snd[slot] = 0
-    SET_AUDIO_STREAM_STATE snd[slot] AUDIO_PLAY
-    SET_PLAY_3D_AUDIO_STREAM_AT_CHAR snd[slot] h
+// ---------------------------------------------------------------------------
+//  cv_debug   mostra na tela o que o mod esta pensando
+//
+//  Ligado pelo "debug = 1" no CLEO/CORVOS.ini (padrao 0). Desligado, o custo
+//  e' ler essa chave do INI uma vez por quadro.
+//
+//  PARA TIRAR O MODO DEBUG (quando nao for mais preciso):
+//    1. apague esta sub inteira;
+//    2. apague a linha "GOSUB cv_debug" no fim do cv_main;
+//    3. apague as subs geradas cv_dbg_area e cv_dbg_nearest (e os blocos que
+//       as geram, no tools/gen_corvos.py);
+//    4. tire a chave "debug" do tools/CORVOS.ini.
+//
+//  O que aparece na tela:
+//    area ........... em que area de corvos o jogador esta (0 = nenhuma)
+//    proxima ........ numero da area mais proxima
+//    dist ........... distancia ate o centro dessa area
+//    trava .......... area "gasta" (os corvos de la so voltam quando o jogador
+//                     sai da esfera dela; 0 = nenhuma)
+//    clima / chuva .. tipo de clima do jogo e intensidade da chuva
+//    modelo ......... 1 quando o CROW01.dff e a raven.ifp estao carregados
+//    corvos ......... quantos corvos existem / maximo do INI
+//    est ............ estado de cada vaga (0 livre, 1 pousado, 2 subindo,
+//                     3 voando, 4 morto)
+//    caw ............ "grasnado_a_cada" (segundos)
+//    t .............. TIMERA e TIMERB, os cronometros do motor
+// ---------------------------------------------------------------------------
+cv_debug:
+tmp = 0
+READ_INT_FROM_INI_FILE "CLEO/CORVOS.ini" "corvos" "debug" tmp
+IF tmp = 0
     RETURN
 ENDIF
-found = 2
-GOSUB cv_audio_play
+h = player
+GOSUB cv_dbg_area                   // st = area do jogador, px/py/pz = centro
+GOSUB cv_dbg_nearest                // found = area mais proxima, gz = distancia
+READ_MEMORY ADDR_WEATHER_TYPE 1 0 tmp
+READ_MEMORY ADDR_RAIN 4 0 rnd
+h = 0
+IF HAS_SPECIAL_CHARACTER_LOADED CROW_SLOT
+AND HAS_ANIMATION_LOADED "RAVEN"
+    h = 1
+ENDIF
+slot = 0
+IF NOT crow[0] = 0
+    slot += 1
+ENDIF
+IF NOT crow[1] = 0
+    slot += 1
+ENDIF
+IF NOT crow[2] = 0
+    slot += 1
+ENDIF
+IF NOT crow[3] = 0
+    slot += 1
+ENDIF
+IF NOT crow[4] = 0
+    slot += 1
+ENDIF
+PRINT_HELP_FORMATTED "~y~CORVOS DEBUG~w~  area %d  proxima %d  dist %.0f m  trava %d  clima %d  chuva %.0f  modelo %d" st found gz lockarea tmp rnd h
+tmp = cfg_misc / 4
+// ATENCAO: os argumentos do texto formatado tem que ser numeros ou variaveis --
+// passar o nome de uma constante faz o gta3sc mandar um "text label", e o jogo
+// imprimiria lixo. Por isso o 5 (MAX_CROWS) aqui e' literal.
+PRINT_FORMATTED_NOW "corvos %d/%d  est %d%d%d%d%d  caw %d s  t %d %d" 500 slot 5 state[0] state[1] state[2] state[3] state[4] tmp timera timerb
 RETURN
 
 

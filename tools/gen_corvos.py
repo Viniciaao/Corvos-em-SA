@@ -50,10 +50,12 @@ AREA_RADIUS_MIN = 200.0
 #  Chave = (area, numero do poleiro dentro da area, na ordem em que aparecem
 #  nos CROW1..CROW5). Valor = (x, y, z) novo.
 #
-#    area 1, poleiro 3: o CROW3 nascia a 1,66 m do CROW2 (dois corvos colados
-#    no chao); o jogador pediu para mover o segundo para o ponto abaixo.
+#    area 1, poleiro 2 (CROW2) e poleiro 3 (CROW3): os dois nasciam a 1,66 m
+#    um do outro (dois corvos colados no chao); o jogador pediu para mover os
+#    dois, cada um para o ponto que ele indicou.
 # ---------------------------------------------------------------------------
 PERCH_OVERRIDES = {
+    (1, 2): (-1437.862305, -1518.452393, 117.656250),
     (1, 3): (-1466.996460, -1554.317017, 101.757782),
 }
 
@@ -261,14 +263,16 @@ def perch_table(areas):
         lines.append('RETURN                          // um corvo por quadro, no maximo')
     lines.append('')
     lines.append('// ---------------------------------------------------------------------------')
-    lines.append('//  cv_area_lock_crow   guarda em lockarea a area de onde o corvo (h) saiu')
+    lines.append('//  cv_area_of_char   st = area (1..13) em que esta o personagem h')
     lines.append('//')
-    lines.append('//  Chamada quando o corvo vai embora (levanta voo, e solto longe, some).')
-    lines.append('//  A area e descoberta pela posicao do corvo: assim nao precisa')
-    lines.append('//  guardar a area de cada corvo (o script usa as 32 variaveis do jogo).')
-    lines.append('//  A partir dai nenhum corvo nasce ate o jogador sair daquela area.')
+    lines.append('//  Usada quando um corvo vai embora (levantar voo, morrer longe, ser')
+    lines.append('//  solto): a area descoberta aqui e guardada em lockarea. A area e')
+    lines.append('//  descoberta pela posicao do corpo, entao nao e preciso guardar a area')
+    lines.append('//  de cada corvo (o script usa as 32 variaveis locais do jogo).')
+    lines.append('//  0 = fora de todas as areas.')
     lines.append('// ---------------------------------------------------------------------------')
-    lines.append('cv_area_lock_crow:')
+    lines.append('cv_area_of_char:')
+    lines.append('st = 0')
     lines.append('IF NOT DOES_CHAR_EXIST h')
     lines.append('    RETURN')
     lines.append('ENDIF')
@@ -277,17 +281,50 @@ def perch_table(areas):
         r = fmt(rad)
         lines.append('IF LOCATE_CHAR_ANY_MEANS_3D h %s %s %s %s %s %s 0'
                      % (fmt(cen[0]), fmt(cen[1]), fmt(cen[2]), r, r, r))
-        lines.append('    lockarea = %d' % a['id'])
+        lines.append('    st = %d' % a['id'])
         lines.append('    RETURN')
         lines.append('ENDIF')
     lines.append('RETURN')
     lines.append('')
     lines.append('// ---------------------------------------------------------------------------')
-    lines.append('//  cv_area_unlock   zera a trava quando o jogador ja saiu da area')
-    lines.append('//')
-    lines.append('//  O raio conferido e o da area de ativacao (200 m): saindo dai, os')
-    lines.append('//  corvos daquele lugar podem voltar numa proxima visita.')
+    lines.append('//  MODO DEBUG (so usado pelo cv_debug; para tirar o debug, apague as duas')
+    lines.append('//  subs abaixo junto com o cv_debug e a chamada dele no cv_main)')
     lines.append('// ---------------------------------------------------------------------------')
+    lines.append('')
+    lines.append('// cv_dbg_area   st = area em que esta o personagem h e px/py/pz = centro')
+    lines.append('cv_dbg_area:')
+    lines.append('st = 0')
+    lines.append('IF NOT DOES_CHAR_EXIST h')
+    lines.append('    RETURN')
+    lines.append('ENDIF')
+    for a in areas:
+        cen, rad = a['center'], a['radius']
+        r = fmt(rad)
+        lines.append('IF LOCATE_CHAR_ANY_MEANS_3D h %s %s %s %s %s %s 0'
+                     % (fmt(cen[0]), fmt(cen[1]), fmt(cen[2]), r, r, r))
+        lines.append('    st = %d' % a['id'])
+        lines.append('    px = %s' % fmt(cen[0]))
+        lines.append('    py = %s' % fmt(cen[1]))
+        lines.append('    pz = %s' % fmt(cen[2]))
+        lines.append('    RETURN')
+        lines.append('ENDIF')
+    lines.append('RETURN')
+    lines.append('')
+    lines.append('// cv_dbg_nearest   found = area mais proxima do jogador, gz = distancia')
+    lines.append('cv_dbg_nearest:')
+    lines.append('GET_CHAR_COORDINATES player fx fy fz')
+    lines.append('found = 0')
+    lines.append('rnd = 100000.0')
+    for a in areas:
+        cen, rad = a['center'], a['radius']
+        lines.append('GET_DISTANCE_BETWEEN_COORDS_3D fx fy fz %s %s %s gz'
+                     % (fmt(cen[0]), fmt(cen[1]), fmt(cen[2])))
+        lines.append('IF gz < rnd')
+        lines.append('    rnd = gz')
+        lines.append('    found = %d' % a['id'])
+        lines.append('ENDIF')
+    lines.append('RETURN')
+    lines.append('')
     lines.append('cv_area_unlock:')
     for a in areas:
         cen, rad = a['center'], a['radius']

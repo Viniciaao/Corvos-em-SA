@@ -1,10 +1,10 @@
 ===========================================================================
- CORVOS DO GTA V  -  versao 2.4 (reescrita)
+ CORVOS DO GTA V  -  versao 2.5 (reescrita)
 ===========================================================================
 
  Mod original: Dakurlz
  Creditos originais: JuniorDjjr (blog), MixMods, BrModStudio
- Versao 2.4: um script unico (CORVOS.cs) no lugar dos cinco antigos
+ Versao 2.5: um script unico (CORVOS.cs) no lugar dos cinco antigos
            (CROW1.cs ... CROW5.cs), com os erros de logica corrigidos e um
            arquivo de configuracao (CLEO/CORVOS.ini).
 
@@ -34,6 +34,11 @@
          afastar 200 m dali (o original esperava 10 s e comecava tudo de novo,
          e o corvo nascia nas costas do jogador). A area de ativacao passou de
          100 m para 200 m.
+   2.5 - modo debug no CLEO/CORVOS.ini (mostra na tela em que area de corvos
+         voce esta, a trava, os corvos, o clima e mais);
+         cada corvo agora tem o proprio relogio de grasnado (antes todos
+         comecavam do zero no nascimento e grasnavam quase juntos);
+         o poleiro do CROW2 da area 1 foi movido para longe do CROW3.
 
  O que o mod faz
  ---------------
@@ -121,9 +126,30 @@
       tempo_entre_corvos ............. espera entre um corvo e o proximo (ms)
       tempo_para_renascer ............ espera para nascer outro depois que um
                                        corvo saiu (ms)
+      debug .......................... 1 = liga o modo debug na tela
 
  O script le a configuracao quando a partida carrega: depois de mexer no
  INI, reinicie o jogo.
+
+ Modo debug
+ ----------
+ Com "debug = 1" no INI o mod desenha duas linhas na tela:
+
+     caixa de ajuda:  area ......... em que area de corvos voce esta (0 = nenhuma)
+                      proxima ...... numero da area mais perto
+                      dist ......... distancia ate o centro dela
+                      trava ........ area "gasta" (os corvos dela so voltam
+                                     quando voce sai da regiao)
+                      clima/chuva .. clima do jogo
+                      modelo ....... 1 = CROW01.dff e raven.ifp carregados
+     barra de texto:  corvos ....... quantos existem / maximo do INI
+                      est .......... estado de cada vaga (0 livre, 1 pousado,
+                                     2 subindo, 3 voando, 4 morto)
+                      caw .......... segundos entre grasnados
+                      t ............ TIMERA e TIMERB do motor
+
+ E' so para achar problema: com ele ligado o mod le o INI uma vez por quadro.
+ Deixe "debug = 0" no uso normal.
 
  O que NAO esta no INI (e' ajustado no fonte, precisa recompilar):
       o corvo nasce entre 25 m e 90 m do jogador;
