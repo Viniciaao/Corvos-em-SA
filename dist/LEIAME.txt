@@ -1,0 +1,189 @@
+===========================================================================
+ CORVOS DO GTA V  -  versao 2.5 (reescrita)
+===========================================================================
+
+ Mod original: Dakurlz
+ Creditos originais: JuniorDjjr (blog), MixMods, BrModStudio
+ Versao 2.5: um script unico (CORVOS.cs) no lugar dos cinco antigos
+           (CROW1.cs ... CROW5.cs), com os erros de logica corrigidos e um
+           arquivo de configuracao (CLEO/CORVOS.ini).
+
+ Novidades / correcoes desta versao
+ ----------------------------------
+   2.0 - um script so no lugar dos cinco; erros de logica do original
+         corrigidos; audio 3D.
+   2.1 - corrige um travamento durante a procura de pedestres no poleiro
+         (o opcode que procura alguem por perto devolve -1 quando nao acha
+         ninguem; o teste antigo nao pegava esse -1).
+   2.2 - corrige o travamento do script esperando o modelo carregar (era a
+         demora depois do fast travel); o corvo que fica longe do jogador
+         desaparece em vez de virar um pedestre qualquer; grasnado nao fica
+         mais repetindo sem parar; volume dos sons; o corvo nao nasce na
+         chuva nem na tempestade de areia; configuracao no CLEO/CORVOS.ini.
+   2.3 - corrige o voo de vez (com a colisao desligada o GTA nao move o ped:
+         o corvo ficava parado no ar batendo as asas);
+         o corvo nao nasce mais na frente do jogador nem sempre no mesmo
+         ponto: ele escolhe o poleiro mais perto que esteja livre, de
+         preferencia fora da camera, e nunca a menos de 25 m do jogador;
+         dois corvos pousados ficam a pelo menos 4 m um do outro;
+         o som so toca a menos de 30 m do jogador, o grasnado ficou mais raro
+         e os volumes cairam (tudo ajustavel no INI);
+         esperas menores: 0,25 s entre um corvo e outro e 3 s para renascer.
+   2.4 - os corvos nao reaparecem mais logo depois de irem embora: depois que
+         os corvos de um lugar vao embora, nenhum outro nasce ate o jogador se
+         afastar 200 m dali (o original esperava 10 s e comecava tudo de novo,
+         e o corvo nascia nas costas do jogador). A area de ativacao passou de
+         100 m para 200 m.
+   2.5 - modo debug no CLEO/CORVOS.ini (mostra na tela em que area de corvos
+         voce esta, a trava, os corvos, o clima e mais);
+         cada corvo agora tem o proprio relogio de grasnado (antes todos
+         comecavam do zero no nascimento e grasnavam quase juntos);
+         o poleiro do CROW2 da area 1 foi movido para longe do CROW3;
+         correcao (volta do teste): o corvo pousado estava recebendo o codigo
+         de voo (a conta do grasnado deixava a variavel de rascunho com o
+         mesmo numero de "voando"), e ele saia do poleiro deslizando, sem
+         bater asas, ate cair no chao. Agora a rotina de cada corvo e'
+         escolhida lendo o estado da vaga direto, e nao tem mais como
+         confundir.
+
+ O que o mod faz
+ ---------------
+ Coloca corvos do GTA V pousados em 64 pontos do mapa (telhados, postes,
+ muros...), nas mesmas 13 regioes do mod original. Quando o jogador chega
+ perto de uma dessas regioes, um corvo aparece num dos poleiros dela -
+ de preferencia num que esteja fora da camera, para nao ver o bicho
+ surgindo do nada. Ele fica pousado grasnando e levanta voo se:
+    - o jogador chega a menos de 10 m
+    - o jogador atira nele
+    - ele cai na agua
+    - algum pedestre passa a menos de 10 m
+    - tem fogo a menos de 5 m
+    - um tiro passa de raspão
+    - um carro passa a menos de 10 m a mais de 5.0 de velocidade
+ O corvo nasce no poleiro mais perto que estiver livre, de preferencia fora
+ da camera do jogador, e nunca a menos de 25 m dele. Depois que os corvos de
+ um lugar vao embora (levantam voo ou sao soltos por distancia), NENHUM outro
+ corvo nasce ate o jogador se afastar 200 m daquela regiao - e' so voltar
+ depois para ver os corvos de novo.
+ No ar ele sobe ate uns 25 m, desvia de paredes olhando 12 m a frente,
+ plana para pousar e grasna de novo ao pousar. Se for morto, cai
+ (DIE_fly), toca a animacao de morte no chao (DIE_raven) e o corpo fica
+ na cena ate o jogador se afastar 100 m (ai ele desaparece - se o jogador
+ nao estiver olhando, o corpo e apagado na hora).
+ O som e 3D: asas batendo no voo (em laco), grasnado no poleiro (toca uma
+ vez, de vez em quando), presos ao corpo do corvo (CLEO 0AC1/0AC2/0AC4) e
+ so audiveis a menos de 30 m.
+
+ Requisitos
+ ----------
+   - GTA San Andreas 1.0 (PC)
+   - CLEO 4.3 ou superior (o audio 3D usa opcodes do CLEO)
+   - ModLoader (opcional, deixa a instalacao mais limpa)
+
+ Instalacao
+ ----------
+ 1) Script, configuracao e sons
+      copie a pasta CLEO deste pacote para a pasta do GTA San Andreas
+      (junto do gta_sa.exe), ficando assim:
+
+          GTA San Andreas/
+            CLEO/
+              CORVOS.cs            <- o script novo
+              CORVOS.ini           <- configuracao (pode editar)
+              sounds/
+                CROW.mp3
+                WINGS.mp3
+
+ 2) Modelo, textura e animacao
+      importe os arquivos da pasta gta3img deste pacote no gta3.img:
+
+          CROW01.dff
+          CROW01.txd
+          raven.ifp
+
+      Use o Alci's IMG Editor (ou outro editor de IMG). Se preferir o
+      ModLoader, crie uma pasta dentro de modloader com esses arquivos
+      dentro de uma subpasta chamada gta3img (o ModLoader virtualiza o
+      gta3.img).
+
+      IMPORTANTE: o modelo tem que estar no gta3.img (ou no ModLoader).
+      O nome do arquivo e o nome usado pelo script - nao renomeie.
+
+ 3) Apague os scripts antigos
+      CLEO/CROW1.cs, CROW2.cs, CROW3.cs, CROW4.cs, CROW5.cs
+      (se sobrar algum deles, o corvo daquela area aparece em dobro)
+
+ Se aparecer a mensagem vermelha "CROW01.dff e raven.ifp nao estao no
+ gta3.img", o passo 2 nao foi feito (ou o CLEO nao conseguiu carregar).
+
+ Configuracao (CLEO/CORVOS.ini)
+ ------------------------------
+ O comportamento do mod se ajusta pelo arquivo CLEO/CORVOS.ini - nao
+ precisa recompilar nada. Se o arquivo nao existir, o script cria um
+ igual ao do pacote na primeira vez que o jogo carrega.
+
+      numero_de_corvos ............... quantos corvos ao mesmo tempo (1 a 5)
+      nascer_na_chuva ................ 1 = pode nascer com chuva
+      nascer_na_tempestade_de_areia .. 1 = pode nascer na tempestade
+      grasnado_a_cada ................ segundos entre grasnados (0 = nunca)
+      volume_grasnado ................ 0.0 a 1.0
+      volume_asas .................... 0.0 a 1.0
+      desligar_som ................... 1 = deixa o mod mudo
+      tempo_entre_corvos ............. espera entre um corvo e o proximo (ms)
+      tempo_para_renascer ............ espera para nascer outro depois que um
+                                       corvo saiu (ms)
+      debug .......................... 1 = liga o modo debug na tela
+
+ O script le a configuracao quando a partida carrega: depois de mexer no
+ INI, reinicie o jogo.
+
+ Modo debug
+ ----------
+ Com "debug = 1" no INI o mod desenha duas linhas na tela:
+
+     caixa de ajuda:  area ......... em que area de corvos voce esta (0 = nenhuma)
+                      proxima ...... numero da area mais perto
+                      dist ......... distancia ate o centro dela
+                      trava ........ area "gasta" (os corvos dela so voltam
+                                     quando voce sai da regiao)
+                      clima/chuva .. clima do jogo
+                      modelo ....... 1 = CROW01.dff e raven.ifp carregados
+     barra de texto:  corvos ....... quantos existem / maximo do INI
+                      est .......... estado de cada vaga (0 livre, 1 pousado,
+                                     2 subindo, 3 voando, 4 morto)
+                      caw .......... segundos entre grasnados
+                      t ............ TIMERA e TIMERB do motor
+
+ E' so para achar problema: com ele ligado o mod le o INI uma vez por quadro.
+ Deixe "debug = 0" no uso normal.
+
+ O que NAO esta no INI (e' ajustado no fonte, precisa recompilar):
+      o corvo nasce entre 25 m e 90 m do jogador;
+      os corvos so voltam a nascer quando o jogador se afasta 200 m da
+      regiao de onde os outros foram embora;
+      dois corvos pousados ficam a pelo menos 4 m um do outro;
+      o som so toca a menos de 30 m;
+      o corvo "esquece" o jogador a mais de 100 m;
+      vida, velocidade de voo, altitude de cruzeiro e distancias de alerta.
+
+ Ajustes no fonte
+ ----------------
+ O resto (distancias de alerta, altitude de voo, velocidade, etc.) esta no
+ comeco do fonte src/CORVOS.sc, na parte CONFIGURACAO.
+
+ Para mudar e recompilar:
+      sh tools/build.sh          (gera build/CLEO/CORVOS.cs)
+      sh tools/package.sh        (remonta a pasta dist/)
+
+ O compilador (gta3sc) e baixado e compilado na primeira vez; depois o
+ script reaproveita o binario guardado em ~/.cache/gta3sc (mude com a
+ variavel GTA3SC_CACHE).
+
+ Creditos
+ --------
+   - Dakurlz ................ mod original (scripts CROW1..CROW5)
+   - JuniorDjjr / MixMods ... divulgacao e ferramentas da comunidade
+   - BrModStudio ............ comunidade original
+   - thelink2012 ............ compilador gta3sc
+   - o modelo, a textura, a animacao e os sons vieram do mod original
+===========================================================================

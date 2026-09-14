@@ -1,0 +1,631 @@
+// This file was decompiled using SASCM.ini published by GTAG (http://gtag.gtagaming.com/opcode-database) on 14.6.2013
+{$CLEO .cs}
+
+//-------------MAIN---------------
+thread 'REPLACE' 
+
+
+:NEAR_1
+wait 0
+if
+Player.Defined($PLAYER_CHAR)
+jf @NEAR_1
+if and
+00FE:   actor $PLAYER_ACTOR sphere 0 in_sphere -1464.7968 -1558.324 101.7578 radius 100.0 100.0 100.0
+80FE:   not actor $PLAYER_ACTOR sphere 0 in_sphere -1465.1469 -1551.7413 101.7578 radius 10.0 10.0 10.0
+jf @NEAR_2
+if 
+00C2:   sphere_onscreen -1465.0358 -1552.7789 101.7578 radius 20.0
+jf @START_1
+jump @NEAR_2
+
+:START_1
+wait 0
+16@ = -1469.8451 
+17@ = -1553.5935 
+18@ = 102.1705  
+20@ = 274.0479
+jump @REPLACE_13
+
+:NEAR_2
+wait 0
+if and
+00FE:   actor $PLAYER_ACTOR sphere 0 in_sphere -1055.7739 -1184.0836 129.1555 radius 100.0 100.0 100.0
+80FE:   not actor $PLAYER_ACTOR sphere 0 in_sphere -1060.0992 -1182.5345 129.2187 radius 30.0 30.0 30.0
+jf @NEAR_3
+if 
+00C2:   sphere_onscreen -1061.317 -1206.5726  134.2378  radius 5.0
+jf @START_2
+jump @NEAR_3
+
+:START_2
+16@ = -1061.317 
+17@ = -1206.5726  
+18@ =  134.2378
+20@ = 276.1524
+jump @REPLACE_13
+
+:NEAR_3
+wait 0
+if and
+00FE:   actor $PLAYER_ACTOR sphere 0 in_sphere -383.5046 -1436.4948 32.3389 radius 100.0 100.0 100.0
+80FE:   not actor $PLAYER_ACTOR sphere 0 in_sphere -383.5046 -1436.4948 32.3389 radius 30.0 30.0 30.0
+jf @NEAR_4
+if 
+00C2:   sphere_onscreen -386.378 -1418.4358 28.8185 radius 5.0
+jf @START_3
+jump @NEAR_4
+
+:START_3
+16@ = -386.378 
+17@ = -1418.4358 
+18@ = 28.8185
+20@ = 264.7869
+jump @REPLACE_13
+
+
+:NEAR_4
+wait 0
+if and
+00FE:   actor $PLAYER_ACTOR sphere 0 in_sphere -352.3501 -1047.2784 62.296 radius 100.0 100.0 100.0
+80FE:   not actor $PLAYER_ACTOR sphere 0 in_sphere -352.3501 -1047.2784 62.296 radius 30.0 30.0 30.0
+jf @NEAR_5
+if 
+00C2:   sphere_onscreen -352.4305 -1037.0093 62.8199 radius 5.0
+jf @START_4
+jump @NEAR_5
+
+:START_4
+16@ = -352.4305 
+17@ = -1037.0093 
+18@ = 62.8199
+20@ = 90.4147
+jump @REPLACE_13
+
+
+:NEAR_5
+wait 0
+if 
+00FE:   actor $PLAYER_ACTOR sphere 0 in_sphere -2034.4563 -2535.4041 43.3446 radius 100.0 100.0 100.0
+jf @NEAR_6
+if 
+00C2:   sphere_onscreen -2052.2615 -2539.8887 33.0796 radius 5.0
+jf @START_5
+jump @NEAR_6
+
+:START_5
+16@ = -2052.2615 
+17@ = -2539.8887 
+18@ = 33.0796
+20@ = 7.857
+jump @REPLACE_13
+
+:NEAR_6
+wait 0
+if 
+00FE:   actor $PLAYER_ACTOR sphere 0 in_sphere -2807.282 -1530.0153 143.8001 radius 100.0 100.0 100.0
+jf @NEAR_7
+if 
+00C2:   sphere_onscreen -2814.1272 -1509.1133 142.3966 radius 5.0
+jf @START_6
+jump @NEAR_7
+
+:START_6
+16@ = -2814.1272 
+17@ =  -1509.1133 
+18@ = 142.3966
+20@ = 0.9401
+jump @REPLACE_13
+
+:NEAR_7
+wait 0
+if 
+00FE:   actor $PLAYER_ACTOR sphere 0 in_sphere -1641.8372 -2235.3174 34.4922 radius 100.0 100.0 100.0
+jf @NEAR_8
+if 
+00C2:   sphere_onscreen -1641.8873 -2243.5178 34.4345 radius 5.0
+jf @START_7
+jump @NEAR_8
+
+:START_7
+16@ = -1641.8873 
+17@ = -2243.5178 
+18@ = 34.4345
+20@ = 152.5948
+jump @REPLACE_13
+
+:NEAR_8
+wait 0
+if 
+00FE:   actor $PLAYER_ACTOR sphere 0 in_sphere -1840.3258 -1672.4329 22.0988 radius 100.0 100.0 100.0
+jf @NEAR_9
+if 
+00C2:   sphere_onscreen -1878.55 -1635.6218 29.5635 radius 5.0
+jf @START_8
+jump @NEAR_9
+
+:START_8
+16@ = -1878.55 
+17@ = -1635.6218 
+18@ = 29.5635  
+20@ = 214.8969
+jump @REPLACE_13
+
+:NEAR_9
+wait 0
+if 
+00FE:   actor $PLAYER_ACTOR sphere 0 in_sphere -545.5967 -187.7389 78.4062 radius 100.0 100.0 100.0
+jf @NEAR_10
+if 
+00C2:   sphere_onscreen -529.4323 -181.4828 83.6983 radius 5.0
+jf @START_9
+jump @NEAR_10
+
+:START_9
+16@ = -529.4323 
+17@ = -181.4828 
+18@ =  83.6983  
+20@ = 212.1286
+jump @REPLACE_13
+
+:NEAR_10
+wait 0
+if 
+00FE:   actor $PLAYER_ACTOR sphere 0 in_sphere -87.6538 -23.3865 6.5942 radius 100.0 100.0 100.0
+jf @NEAR_11
+if 
+00C2:   sphere_onscreen -90.1248 -10.4309 12.2726 radius 5.0
+jf @START_10
+jump @NEAR_11
+
+:START_10
+16@ = -90.1248 
+17@ = -10.4309 
+18@ =  12.2726
+20@ = 251.8992
+jump @REPLACE_13
+
+
+:NEAR_11
+wait 0
+if 
+00FE:   actor $PLAYER_ACTOR sphere 0 in_sphere 2240.3303 -76.4544 26.5146 radius 100.0 100.0 100.0
+jf @NEAR_12
+if 
+00C2:   sphere_onscreen 2243.1953 -66.9552 27.7524 radius 5.0
+jf @START_11
+jump @NEAR_12
+
+:START_11
+16@ = 2243.1953 
+17@ = -66.9552 
+18@ = 27.7524 
+20@ = 89.6149
+jump @REPLACE_13
+
+
+:NEAR_12
+wait 0
+if 
+00FE:   actor $PLAYER_ACTOR sphere 0 in_sphere 891.0176 -1103.2471 23.5 radius 100.0 100.0 100.0
+jf @NEAR_13
+if 
+00C2:   sphere_onscreen 914.5113 -1108.8202 26.8215 radius 5.0
+jf @START_12
+jump @NEAR_13
+
+:START_12
+16@ = 914.5113 
+17@ = -1108.8202 
+18@ = 26.8215 
+20@ = 338.3062
+jump @REPLACE_13
+
+:NEAR_13
+wait 0
+if 
+00FE:   actor $PLAYER_ACTOR sphere 0 in_sphere -360.7076 -1675.0261 28.7048 radius 100.0 100.0 100.0
+jf @NEAR_1
+if 
+00C2:   sphere_onscreen -360.7076 -1675.0261 28.7048 radius 5.0
+jf @START_13
+jump @NEAR_1
+
+:START_13
+16@ = -360.7076 
+17@ = -1675.0261
+18@ = 28.7048 
+20@ = 80.2375
+jump @REPLACE_13
+
+:LOAD
+wait 100
+023C: load_special_actor 'CROW01' as 1 // models 290-299  
+04ED: load_animation "RAVEN"
+jump @REPLACE_13
+
+:REPLACE_13
+wait 0
+if and
+023D:  special_actor 1 loaded
+04EE:   animation "RAVEN" loaded
+jf @LOAD
+
+:AUDIO
+wait 0
+0@ = audiostream.Load3d("CLEO/SOUNDS/CROW.mp3") 
+14@ = audiostream.Load3d("CLEO/SOUNDS/WINGS.mp3") 
+
+
+
+:KOKA
+wait 0     
+7@ = actor.Create(CIVMALE,#SPECIAL01,16@,17@,18@)
+03FE: set_actor 7@ money 0
+actor.Health(7@) = 50
+actor.Angle(7@) = 20@   
+wait 300
+audiostream.PerformAction(0@,PLAY)
+audiostream.LinkToActor(0@,7@)
+audiostream.Loop(0@,1)
+
+:I
+wait 0
+0209: 18@ = random_int_in_ranges 0 10
+if
+18@ == 7
+jf @IDLE
+wait 0
+0812: AS_actor 7@ perform_animation "IDLE_RAVEN" IFP "RAVEN" framedelta 4.0 loopA 1 lockX 1 lockY 1 lockF 1 time -1  // versionB
+jump @L
+
+:IDLE
+wait 0
+0812: AS_actor 7@ perform_animation "IDLE_RAVEN" IFP "RAVEN" framedelta 4.0 loopA 1 lockX 1 lockY 1 lockF 1 time -1  // versionB
+
+
+:L
+wait 0
+if
+NOT actor.Dead(7@)
+jf @END
+wait 0
+if or
+00F2:   actor $PLAYER_ACTOR near_actor 7@ radius 10.0 10.0 sphere 0
+051A: actor 7@ damaged_by_actor $PLAYER_ACTOR
+04AD:   actor 7@ in_water
+jf @R
+jump @FRONT
+:R
+wait 0
+04C4: store_coords_to 1@ 2@ 3@ from_actor 7@ with_offset 0.0 0.0 0.0
+if
+0AE1: 16@ = random_actor_near_point 1@ 2@ 3@ in_radius 10.0 find_next 1 pass_deads 1
+jf @EV
+wait 0
+if 
+NOT actor.Model(16@) == #SPECIAL01
+jf @EV
+jump @FRONT
+
+:EV
+wait 0
+04C4: store_coords_to 1@ 2@ 3@ from_actor 7@ with_offset 0.0 0.0 0.0 
+06C3: get_number_of_fires_within_sphere_at 1@ 2@ 3@ radius 5.0 store_to 17@
+if 
+17@ >= 1
+jf @KOK
+jump @FRONT
+
+:KOK
+wait 0
+080E: get_actor 7@ ped_event_to 10@
+if
+10@ == 49
+jf @C
+jump @FRONT
+
+:C
+wait 0
+04C4: store_coords_to 1@ 2@ 3@ from_actor 7@ with_offset 0.0 0.0 0.0
+if 
+0AE2: 17@ = random_vehicle_near_point 1@ 2@ 3@ in_radius 10.0 find_next 1 pass_wrecked 1
+jf @DAL
+wait 0
+02E3: 18@ = car 17@ speed
+if or
+18@ > 5.0
+car.Wrecked(17@)
+jf @DAL
+jump @FRONT
+
+:DAL
+wait 0
+if
+0104:   actor $PLAYER_ACTOR near_actor 7@ radius 100.0 100.0 100.0 sphere 0
+jf @END
+jump @L  
+
+
+:FRONT
+wait 0
+04C4: store_coords_to 1@ 2@ 3@ from_actor 7@ with_offset 0.0 5.0 5.0 
+04C4: store_coords_to 4@ 5@ 6@ from_actor 7@ with_offset 0.0 0.0 0.0 
+if
+06BD:   no_obstacles_between 1@ 2@ 3@ and 4@ 5@ 6@ solid 1 car 1 actor 0 object 0 particle 0
+jf @BACK
+jump @BEGIN
+
+:BACK
+wait 0
+04C4: store_coords_to 1@ 2@ 3@ from_actor 7@ with_offset 0.0 -5.0 5.0 
+04C4: store_coords_to 4@ 5@ 6@ from_actor 7@ with_offset 0.0 0.0 0.0 
+if
+06BD:   no_obstacles_between 1@ 2@ 3@ and 4@ 5@ 6@ solid 1 car 1 actor 0 object 0 particle 0
+jf @LEFT
+2@ = actor.Angle(7@)
+2@ += 180.0
+actor.Angle(7@) = 2@
+jump @BEGIN
+
+:LEFT
+wait 0
+04C4: store_coords_to 1@ 2@ 3@ from_actor 7@ with_offset 5.0 0.0 5.0 
+04C4: store_coords_to 4@ 5@ 6@ from_actor 7@ with_offset 0.0 0.0 0.0 
+if
+06BD:   no_obstacles_between 1@ 2@ 3@ and 4@ 5@ 6@ solid 1 car 1 actor 0 object 0 particle 0
+jf @RIGHT
+2@ = actor.Angle(7@)
+2@ += 90.0
+actor.Angle(7@) = 2@
+jump @BEGIN
+
+:RIGHT
+wait 0
+04C4: store_coords_to 1@ 2@ 3@ from_actor 7@ with_offset -5.0 -5.0 5.0 
+04C4: store_coords_to 4@ 5@ 6@ from_actor 7@ with_offset 0.0 0.0 0.0 
+if
+06BD:   no_obstacles_between 1@ 2@ 3@ and 4@ 5@ 6@ solid 1 car 1 actor 0 object 0 particle 0
+jf @FRONT
+2@ = actor.Angle(7@)
+2@ -= 90.0
+actor.Angle(7@) = 2@
+jump @BEGIN
+
+:BEGIN
+0812: AS_actor 7@ perform_animation "FLY_RAVEN" IFP "RAVEN" framedelta 4.0 loopA 1 lockX 1 lockY 1 lockF 1 time -1  // versionB
+0467: clear_actor 7@ last_weapon_damage 
+054E: clear_actor 7@ damage
+wait 100
+audiostream.PerformAction(14@,PLAY)
+audiostream.LinkToActor(14@,7@)
+0619: enable_actor 7@ collision_detection 0
+13@ = 10.0
+
+
+:LOPA
+wait 0
+2@ = actor.Angle(7@)
+083E: set_actor 7@ rotation 10.0 0.0 2@ while_in_air 
+04C4: store_coords_to 1@ 2@ 3@ from_actor 7@ with_offset 0.0 0.0 0.0 
+04C4: store_coords_to 4@ 5@ 6@ from_actor 7@ with_offset 0.0 13@ 0.0 
+0063: 4@ -= 1@ // (float) 
+0063: 5@ -= 2@ // (float) 
+0063: 6@ -= 3@ // (float) 
+6@ *= 2.5 
+083C: set_actor 7@ velocity_in_direction_XYZ 4@ 5@ 10.0 
+Actor.StorePos($PLAYER_ACTOR, 27@, 28@, 29@)
+000F: 27@ -= 24@  // Note: the incorrect math opcode was used here
+000F: 28@ -= 25@  // Note: the incorrect math opcode was used here
+000F: 29@ -= 26@  // Note: the incorrect math opcode was used here
+27@ *= 15.0 
+28@ *= 15.0 
+0208: 17@ = random_float_in_ranges 15.0 35.0
+0819: 1@ = actor 7@ distance_from_ground
+0619: enable_actor 7@ collision_detection 1
+if
+0035:   1@ >= 17@  // (float)
+jf @DEAD1
+jump @OPA
+
+:DEAD1
+wait 0
+33@ = actor.Health(7@)
+if or
+8104: not actor $PLAYER_ACTOR near_actor 7@ radius 100.0 100.0 100.0 sphere 0
+33@ <= 0
+jf @LOPA
+0819: 1@ = actor 7@ distance_from_ground
+if
+1@ >= 1.0
+jf @DIE_GROUND1
+wait 0
+0812: AS_actor 7@ perform_animation "DIE_FLY" IFP "RAVEN" framedelta 4.0 loopA 1 lockX 1 lockY 1 lockF 1 time -1  // versionB
+:DIE_FLY1
+0819: 1@ = actor 7@ distance_from_ground
+if
+1@ >= 1.0
+jf @DIE_FLY1
+ 
+:DIE_GROUND1
+0829: actor 7@ perform_animation "DIE_raven" IFP_file "RAVEN" rate 4.0 time 0 and_dies
+jump @END
+
+:UGOL2
+wait 0
+04C4: store_coords_to 1@ 2@ 3@ from_actor 7@ with_offset 0.0 0.0 0.0 
+04C4: store_coords_to 4@ 5@ 6@ from_actor 7@ with_offset 0.0 5.0 0.0 
+if
+06BD:   no_obstacles_between 1@ 2@ 3@ and 4@ 5@ 6@ solid 1 car 0 actor 0 object 1 particle 0
+jf @OLAL2
+jump @LOPA
+
+:OLAL2
+2@ = actor.Angle(7@)
+2@ += 5.0
+083E: set_actor 7@ rotation 0.0 0.0 2@ while_in_air 
+jump @LOPA
+
+:OPA
+wait 0
+0812: AS_actor 7@ perform_animation "FLY_IDLE" IFP "RAVEN" framedelta 4.0 loopA 1 lockX 1 lockY 1 lockF 1 time -1  // versionB
+
+:ANGL
+wait 0
+04C4: store_coords_to 1@ 2@ 3@ from_actor 7@ with_offset 0.0 0.0 0.0 
+04C4: store_coords_to 4@ 5@ 6@ from_actor 7@ with_offset 0.0 13@ 0.0 
+0063: 4@ -= 1@ // (float) 
+0063: 5@ -= 2@ // (float) 
+0063: 6@ -= 3@ // (float) 
+6@ *= 2.5 
+083C: set_actor 7@ velocity_in_direction_XYZ 4@ 5@ 6@ 
+Actor.StorePos($PLAYER_ACTOR, 27@, 28@, 29@)
+000F: 27@ -= 24@  // Note: the incorrect math opcode was used here
+000F: 28@ -= 25@  // Note: the incorrect math opcode was used here
+000F: 29@ -= 26@  // Note: the incorrect math opcode was used here
+27@ *= 15.0 
+28@ *= 15.0 
+2@ = actor.Angle(7@)
+0208: 17@ = random_float_in_ranges 0.9 2.9
+005B: 2@ += 17@  // (float)
+3@ += 1
+083E: set_actor 7@ rotation 0.0 0.0 2@ while_in_air 
+0819: 1@ = actor 7@ distance_from_ground
+04C4: store_coords_to 10@ 20@ 30@ from_actor 7@ with_offset 0.0 0.0 0.0
+04C4: store_coords_to 11@ 21@ 31@ from_actor 7@ with_offset 0.0 10.0 -10.0 
+if and
+1@ <= 8.0
+06BD:   no_obstacles_between 10@ 20@ 30@ and 11@ 12@ 13@ solid 0 car 1 actor 1 object 0 particle 0
+jf @NEEZ1
+jump @LOPA1
+
+:NEEZ1
+04C4: store_coords_to 1@ 2@ 3@ from_actor 7@ with_offset 0.0 0.0 1.0 
+04C4: store_coords_to 4@ 5@ 6@ from_actor 7@ with_offset 0.0 0.0 -1.0 
+if
+06BD:   no_obstacles_between 1@ 2@ 3@ and 4@ 5@ 6@ solid 1 car 1 actor 0 object 1 particle 0
+jf @KOKO
+jump @DEAD2
+
+:DEAD2
+wait 0
+33@ = actor.Health(7@)
+if or
+8104: not actor $PLAYER_ACTOR near_actor 7@ radius 100.0 100.0 100.0 sphere 0
+33@ == 0
+jf @ANGL
+0819: 1@ = actor 7@ distance_from_ground
+if
+1@ >= 1.0
+jf @DIE_GROUND2
+wait 0
+0812: AS_actor 7@ perform_animation "DIE_FLY" IFP "RAVEN" framedelta 4.0 loopA 1 lockX 1 lockY 1 lockF 1 time -1  // versionB
+:DIE_FLY2
+0819: 1@ = actor 7@ distance_from_ground
+if
+1@ >= 1.0
+jf @DIE_FLY2
+ 
+:DIE_GROUND2
+0829: actor 7@ perform_animation "DIE_raven" IFP_file "RAVEN" rate 4.0 time 0 and_dies
+jump @END
+
+
+
+:LOPA1
+wait 0
+04C4: store_coords_to 1@ 2@ 3@ from_actor 7@ with_offset 0.0 0.0 0.0 
+04C4: store_coords_to 4@ 5@ 6@ from_actor 7@ with_offset 0.0 13@ 0.0 
+0063: 4@ -= 1@ // (float) 
+0063: 5@ -= 2@ // (float) 
+0063: 6@ -= 3@ // (float) 
+6@ *= 2.5 
+083C: set_actor 7@ velocity_in_direction_XYZ 4@ 5@ -3.0
+Actor.StorePos($PLAYER_ACTOR, 27@, 28@, 29@)
+000F: 27@ -= 24@  // Note: the incorrect math opcode was used here
+000F: 28@ -= 25@  // Note: the incorrect math opcode was used here
+000F: 29@ -= 26@  // Note: the incorrect math opcode was used here
+27@ *= 15.0 
+28@ *= 15.0 
+0819: 1@ = actor 7@ distance_from_ground
+2@ = actor.Angle(7@)
+083E: set_actor 7@ rotation 10.0 0.0 2@ while_in_air 
+if
+1@ <= 1.0
+jf @DEAD3
+jump @KOKO
+
+:DEAD3
+wait 0
+33@ = actor.Health(7@)
+if or
+8104: not actor $PLAYER_ACTOR near_actor 7@ radius 100.0 100.0 100.0 sphere 0
+33@ == 0
+jf @FALL
+0819: 1@ = actor 7@ distance_from_ground
+if
+1@ >= 1.0
+jf @DIE_GROUND3
+wait 0
+0812: AS_actor 7@ perform_animation "DIE_FLY" IFP "RAVEN" framedelta 4.0 loopA 1 lockX 1 lockY 1 lockF 1 time -1  // versionB
+:DIE_FLY3
+0819: 1@ = actor 7@ distance_from_ground
+if
+1@ >= 1.0
+jf @DIE_FLY3
+ 
+:DIE_GROUND3
+0829: actor 7@ perform_animation "DIE_raven" IFP_file "RAVEN" rate 4.0 time 0 and_dies
+jump @END
+
+:FALL
+wait 0
+0819: 1@ = actor 7@ distance_from_ground
+if
+1@ >= 8.0
+jf @UGOL1
+jump @ANGL
+
+:UGOL1
+wait 0
+04C4: store_coords_to 1@ 2@ 3@ from_actor 7@ with_offset 0.0 0.0 0.0 
+04C4: store_coords_to 4@ 5@ 6@ from_actor 7@ with_offset 0.0 5.0 0.0 
+if
+06BD:   no_obstacles_between 1@ 2@ 3@ and 4@ 5@ 6@ solid 1 car 0 actor 0 object 1 particle 0
+jf @OLAL1
+jump @NEEZ
+
+:OLAL1
+2@ = actor.Angle(7@)
+2@ += 5.0
+083E: set_actor 7@ rotation 0.0 0.0 2@ while_in_air 
+jump @LOPA1
+
+:NEEZ
+wait 0
+04C4: store_coords_to 1@ 2@ 3@ from_actor 7@ with_offset 0.0 0.0 1.0 
+04C4: store_coords_to 4@ 5@ 6@ from_actor 7@ with_offset 0.0 0.0 -1.0 
+if
+06BD:   no_obstacles_between 1@ 2@ 3@ and 4@ 5@ 6@ solid 1 car 1 actor 0 object 1 particle 0
+jf @KOKO
+jump @LOPA1
+
+:KOKO
+wait 0
+2@ = actor.Angle(7@)
+2@ += 180.0
+actor.Angle(7@) = 2@
+jump @I
+
+:END
+wait 0
+audiostream.PerformAction(0@,STOP)
+audiostream.PerformAction(14@,STOP)
+audiostream.Release(0@)
+audiostream.Release(14@)
+
+0296: unload_special_actor 1
+04EF: release_animation "RAVEN"
+actor.RemoveReferences(7@)
+wait 10000
+jump @NEAR_1
