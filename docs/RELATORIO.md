@@ -531,7 +531,83 @@ ponta. Foi assim que a contagem desta versão ficou certa: 2.923 instruções
 (a 2.4 e a 2.3 foram reconferidas e continuam 2.664 e 2.413).
 
 
-## 10. Como recompilar
+## 10. Sexta rodada: o slot do ator especial (v2.6)
+
+**O defeito.** O corvo não é um ped comum: o modelo dele é carregado como
+**ator especial** (`023C load_special_actor 'CROW01' as N`), o que o coloca num
+dos dez slots `#SPECIAL01`…`#SPECIAL10` (modelos 290–299). Esses slots são
+**estado global do jogo**, compartilhado com as missões: o modelo que está no
+slot é o **último** que alguém carregou ali, e é esse que o `CREATE_CHAR` com
+`#SPECIAL0N` vai usar.
+
+O mod original (e as versões 2.0–2.5 desta reescrita, que herdaram esse ponto)
+usavam o **slot 1** — exatamente o que as missões usam para carregar o Sweet.
+Resultado: depois de uma missão que carrega o slot 1, todo corvo criado nascia
+com o corpo do outro personagem e continuava recebendo as animações do
+`raven.ifp` (bater asas, pousar, morrer). É o *"Sweet voando batendo asas"*
+que o tutorial do Junior_Djjr cita como exemplo famoso:
+
+> "[…] se você carregar como `1` e uma missão ou mod também carregar como `1`,
+> irá sobrescrever e assim aparecerá outra pessoa lá (vários conhecem esse bug
+> devido ao mod de corvos, onde aparecia o Sweet voando batendo asas)."
+> — *Criação de carros, pedestres, objetos (uso de modelos)*, fórum MixMods,
+> t551 (seção "Modelos especiais para CHARs").
+
+O tutorial recomenda usar um número menos comum, como o `7`.
+
+**Por que a reescrita não pegava isso.** A única defesa do script é
+`HAS_SPECIAL_CHARACTER_LOADED` (`023D`, nas linhas 146, 239, 799 e 846). Esse
+opcode responde *"o slot está carregado?"*, e **não** *"o slot é o CROW01?"*:
+com outro personagem dentro dele o teste continua verdadeiro, o `cv_keep_loaded`
+nunca recarrega e o mod segue criando ped com o modelo errado. (Perguntar qual
+modelo está no slot exigiria ler a tabela de modelos na memória — endereço que
+muda conforme a versão do executável, sem opcode para isso.) A troca de slot é,
+portanto, a correção certa, e é o que o próprio tutorial recomenda.
+
+Detalhe agravante da reescrita: como a v2 parou de descarregar o ator especial
+(defeito nº 9 do mod original, corrigido na seção 3), o mod passou a *segurar*
+esse slot para sempre — então, além de sofrer o conflito, ele também passou a
+poder causá-lo em outro mod/missão. A troca para um slot pouco usado reduz os
+dois lados do problema.
+
+**O que mudou.** Duas constantes no bloco `CONFIGURACAO` do
+`tools/corvos_logic.sc.txt` (que o `tools/gen_corvos.py` injeta no
+`src/CORVOS.sc`):
+
+| | antes | agora |
+|---|---|---|
+| `CROW_SLOT` | `1` | `7` |
+| `CROW_MODEL` | `290` (`#SPECIAL01`) | `296` (`#SPECIAL07`) |
+
+Nada mais foi tocado: nome do modelo (`CROW01.dff`/`.txd`), `raven.ifp`, sons,
+tabela de poleiros e toda a lógica ficam iguais — só mudou em que "gaveta" do
+jogo o modelo é guardado. O slot continua sendo um número único; quem preferir
+outro slot troca as duas constantes (`CROW_MODEL = 289 + CROW_SLOT`) e
+recompila.
+
+**Conferência.** Recompilado com o `gta3sc` (`tools/build.sh`, sem erros nem
+avisos) e comparado byte a byte com o `.cs` da 2.5: **8 bytes de diferença**, e
+são exatamente os oito operandos de slot/modelo, nada mais. O tamanho ficou
+idêntico (26.943 bytes) e a desmontagem de `tools/scm_disasm.py` mostra os
+pontos certos:
+
+```
+023C  LOAD_SPECIAL_CHARACTER        7 'CROW01'
+023D  HAS_SPECIAL_CHARACTER_LOADED  7
+009A  CREATE_CHAR                   4 296 ...
+02F2  NOT IS_CHAR_MODEL             21@ 296
+```
+
+(dentro do `cv_perch`, o corvo "intruso" deixa de ser confundido com corvo: o
+teste `IS_CHAR_MODEL` também passou a usar 296). O `dist/` foi remontado
+(`tools/package.sh`) com o `.cs` novo.
+
+O que **não** foi testado: o conflito em jogo (carregar uma missão do Sweet e
+ver o corvo depois). O que dá para garantir sem jogar é que o mod não usa mais o
+slot 1 e que o bytecode mudou só nisso.
+
+
+## 11. Como recompilar
 
 ```sh
 sh tools/build.sh      # gera src/CORVOS.sc e compila para build/CLEO/CORVOS.cs
@@ -557,7 +633,7 @@ dist/                      pacote final (CLEO + gta3img + LEIAME)
 
 ---
 
-## 11. Créditos
+## 12. Créditos
 
 * **Dakurlz** — mod original e scripts `CROW1` … `CROW5`.
 * **JuniorDjjr**, **MixMods**, **BrModStudio** — divulgação/ferramentas citadas no

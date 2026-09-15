@@ -1,10 +1,10 @@
 ===========================================================================
- CORVOS DO GTA V  -  versao 2.5 (reescrita)
+ CORVOS DO GTA V  -  versao 2.6 (reescrita)
 ===========================================================================
 
  Mod original: Dakurlz
  Creditos originais: JuniorDjjr (blog), MixMods, BrModStudio
- Versao 2.5: um script unico (CORVOS.cs) no lugar dos cinco antigos
+ Versao 2.6: um script unico (CORVOS.cs) no lugar dos cinco antigos
            (CROW1.cs ... CROW5.cs), com os erros de logica corrigidos e um
            arquivo de configuracao (CLEO/CORVOS.ini).
 
@@ -45,6 +45,14 @@
          bater asas, ate cair no chao. Agora a rotina de cada corvo e'
          escolhida lendo o estado da vaga direto, e nao tem mais como
          confundir.
+   2.6 - o corvo nao usa mais o slot 1 de ator especial (o "SPECIAL01",
+         modelo 290), e sim o slot 7 (o "SPECIAL07", modelo 296). O slot 1
+         e' o que as missoes do jogo usam para carregar personagens como o
+         Sweet, e quem manda no slot e' o ultimo script que carrega: depois
+         de uma dessas missoes o corvo nascia com o corpo do outro
+         personagem (o classico "Sweet voando batendo asas"). O slot 7 e' o
+         menos usado, como recomenda o tutorial do Junior_Djjr (forum
+         MixMods). O modelo, a textura, a animacao e o som nao mudam nada.
 
  O que o mod faz
  ---------------
@@ -115,6 +123,18 @@
 
  Se aparecer a mensagem vermelha "CROW01.dff e raven.ifp nao estao no
  gta3.img", o passo 2 nao foi feito (ou o CLEO nao conseguiu carregar).
+
+ Compatibilidade com missoes e outros mods
+ -----------------------------------------
+ O corvo e' um "ator especial" do jogo, e os dez slots desses atores
+ (modelos 290 a 299) sao compartilhados com as missoes: quem carrega por
+ ultimo e' quem manda no slot. Ate a versao 2.5 o corvo usava o slot 1 - o
+ mesmo que as missoes usam para o Sweet e outros personagens -, e por isso
+ podia aparecer um personagem qualquer (o Sweet, por exemplo) voando com as
+ animacoes do corvo. Da versao 2.6 em diante o corvo usa o slot 7, o menos
+ usado. Se mesmo assim algum outro mod usar o slot 7, de para trocar de
+ numero: mude CROW_SLOT e CROW_MODEL (CROW_MODEL = 289 + CROW_SLOT) na parte
+ CONFIGURACAO do fonte src/CORVOS.sc e recompile (sh tools/build.sh).
 
  Configuracao (CLEO/CORVOS.ini)
  ------------------------------

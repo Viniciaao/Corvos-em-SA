@@ -1,4 +1,4 @@
-# Corvos do GTA V — versão 2.5 (reescrita)
+# Corvos do GTA V — versão 2.6 (reescrita)
 
 Reescrita do mod **Corvos do GTA V** (original de *Dakurlz*): corvos do GTA V
 pousados pelo mapa de San Andreas que levantam voo quando o jogador (ou uma
@@ -7,6 +7,14 @@ ameaça) chega perto.
 Esta versão junta os cinco scripts originais (`CROW1` … `CROW5`) em **um único
 script**, corrige os erros de lógica do original e usa o áudio 3D do CLEO.
 
+* **2.6 (correção)** — o corvo deixou de usar o **slot 1** de ator especial
+  (`#SPECIAL01`, modelo 290). Esse é o slot que as missões do jogo usam para
+  carregar personagens como o Sweet; como quem manda no slot é o último script
+  que carrega, os corvos criados depois apareciam com o corpo do outro
+  personagem (o clássico *"Sweet voando batendo asas"*). Agora o corvo usa o
+  **slot 7** (`#SPECIAL07`, modelo 296), o menos usado, como recomenda o
+  [tutorial do Junior_Djjr](https://forum.mixmods.com.br/f141-gta3script-cleo/t551-criacao-de-carros-pedestres-objetos-uso-de-modelos).
+  Ver a seção 10 do relatório.
 * **2.5 (correção)** — o corvo **pousado** estava recebendo o código de voo (a
   conta do grasnado deixava a variável de rascunho com o valor de "voando"), e
   saía do poleiro deslizando, sem bater asas, até cair no chão. Agora a rotina
@@ -72,6 +80,19 @@ extracted/                 conteúdo do pacote original (tar) usado como referê
 docs/LEIAME.txt            instruções de instalação
 docs/RELATORIO.md          análise do mod original e do que foi corrigido
 ```
+
+## Compatibilidade com missões e outros mods
+
+O corvo é um **ator especial** (`023C load_special_actor`), e os dez slots desses
+atores (modelos 290–299) são estado global do jogo, compartilhado com as missões:
+**o último script que carrega é quem manda no slot**. O mod original (e as versões
+2.0–2.5 desta reescrita) usava o **slot 1** — o mesmo que as missões usam para
+carregar o Sweet e outros personagens —, então depois de uma dessas missões o
+corvo nascia com o corpo do outro personagem e continuava batendo asas. A versão
+2.6 passou a usar o **slot 7** (modelo 296), que é o menos usado; se outro mod
+ainda assim disputar esse slot, dá para trocar por outro número: basta mudar
+`CROW_SLOT` e `CROW_MODEL` (`CROW_MODEL = 289 + CROW_SLOT`) no bloco
+`CONFIGURACAO` do `src/CORVOS.sc` e recompilar (`sh tools/build.sh`).
 
 ## Requisitos no jogo
 
