@@ -1,5 +1,5 @@
 // ===========================================================================
-//  CORVOS DO GTA V  -  versao 2.5 (reescrito, corrigido e otimizado)
+//  CORVOS DO GTA V  -  versao 2.6 (reescrito, corrigido e otimizado)
 //
 //  Mod original: Dakurlz
 //  Creditos originais: JuniorDjjr (blog), MixMods, BrModStudio
@@ -24,6 +24,11 @@
 //                  saida: build/CORVOS.cs
 //
 //  HISTORICO
+//   2.6 - o corvo sai do slot 1 de ator especial e passa para o slot 7
+//         (#SPECIAL07, modelo 296). O slot 1 e' o que as missoes usam para
+//         carregar personagens como o Sweet: quem carrega por ultimo manda, e
+//         o corvo nascido depois saia com o corpo do outro personagem (o
+//         classico "Sweet voando batendo asas"). Ver a secao 10 do relatorio
 //   2.5 - modo debug (mostra na tela em que area o jogador esta, a trava, os
 //         corvos e o clima; ligado pelo "debug" do CLEO/CORVOS.ini),
 //         grasnado de cada corvo com relogio proprio (antes todos comecavam
@@ -59,8 +64,15 @@
 //  CONFIGURACAO
 // ---------------------------------------------------------------------------
 CONST_INT   MAX_CROWS             5        // corvos ao mesmo tempo
-CONST_INT   CROW_MODEL            290      // #SPECIAL01 (023C carrega no slot 1)
-CONST_INT   CROW_SLOT             1        // slot do ator especial (1..10)
+// O corvo NAO usa o slot 1 de ator especial de proposito. O slot 1 (modelo
+// 290, #SPECIAL01) e' o que as missoes do jogo costumam usar para carregar
+// personagens como o Sweet; como o ultimo script que carrega manda no slot,
+// os corvos criados depois da missao nasciam com o corpo do outro personagem
+// -- o classico "Sweet voando batendo asas". O slot 7 (modelo 296,
+// #SPECIAL07) e' o numero menos usado, como recomenda o tutorial do
+// Junior_Djjr (forum MixMods, t551). Ver a secao 10 do relatorio.
+CONST_INT   CROW_MODEL            296      // #SPECIAL07 (023C carrega no slot 7)
+CONST_INT   CROW_SLOT             7        // slot do ator especial (1..10)
 CONST_INT   CROW_HEALTH           50       // vida do corvo (a 0223 usa inteiro)
 
 CONST_INT   STATE_FREE            0
